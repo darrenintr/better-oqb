@@ -1,0 +1,193 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android APK and AAB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android runner
+        run: flutter create --platforms=android .
+      - run: flutter pub get
+      - name: Build APK
+        run: flutter build apk --release
+      - name: Build app bundle
+        run: flutter build appbundle --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-android
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate iOS runner
+        run: flutter create --platforms=ios .
+      - run: flutter pub get
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/ios/iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          rm -rf build/ipa
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/
+          (
+            cd build/ipa
+            zip -qry ../better-oqb-ios-unsigned.ipa Payload
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-ios-unsigned
+          path: build/better-oqb-ios-unsigned.ipa
+          if-no-files-found: error
+
+  linux:
+    name: Linux tar.gz and DEB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev libnss3-dev libsecret-1-dev libjsoncpp-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Linux runner
+        run: flutter create --platforms=linux .
+      - run: flutter pub get
+      - name: Build Linux
+        run: flutter build linux --release
+      - name: Package Linux artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="build/linux/x64/release/bundle"
+          tar -C "$BUNDLE" -czf build/better-oqb-linux-x64.tar.gz .
+
+          PKG="build/deb/better-oqb"
+          mkdir -p "$PKG/DEBIAN" "$PKG/opt/better-oqb" "$PKG/usr/bin"
+          cp -a "$BUNDLE/." "$PKG/opt/better-oqb/"
+
+          cat > "$PKG/DEBIAN/control" <<'EOF'
+          Package: better-oqb
+          Version: 0.1.0
+          Section: education
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Better OQB
+          Depends: libgtk-3-0, libnss3, libsecret-1-0
+          Description: Better OQB responsive Flutter client
+          EOF
+
+          cat > "$PKG/usr/bin/better-oqb" <<'EOF'
+          #!/bin/sh
+          exec /opt/better-oqb/better_oqb "$@"
+          EOF
+          chmod 0755 "$PKG/usr/bin/better-oqb"
+          dpkg-deb --build "$PKG" build/better-oqb-linux-amd64.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-linux
+          path: |
+            build/better-oqb-linux-x64.tar.gz
+            build/better-oqb-linux-amd64.deb
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows .
+      - run: flutter pub get
+      - name: Build Windows
+        run: flutter build windows --release
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "build\better-oqb-windows-x64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-windows
+          path: build/better-oqb-windows-x64.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate macOS runner
+        run: flutter create --platforms=macos .
+      - run: flutter pub get
+      - name: Build macOS
+        run: flutter build macos --release
+      - name: Package macOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/better-oqb-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-macos
+          path: build/better-oqb-macos.zip
+          if-no-files-found: error
