@@ -23,7 +23,6 @@ class OqbBrowser extends StatefulWidget {
 
 class _OqbBrowserState extends State<OqbBrowser> {
   String? _bridgeScript;
-  InAppWebViewController? _mobileController;
   cef.WebViewController? _desktopController;
   bool _desktopReady = false;
 
@@ -122,7 +121,6 @@ class _OqbBrowserState extends State<OqbBrowser> {
         sharedCookiesEnabled: true,
       ),
       onWebViewCreated: (controller) {
-        _mobileController = controller;
         controller.addJavaScriptHandler(
           handlerName: 'betterOqbPageState',
           callback: (arguments) {
