@@ -27,8 +27,7 @@ class _OqbBrowserState extends State<OqbBrowser> {
   cef.WebViewController? _desktopController;
   bool _desktopReady = false;
 
-  bool get _useCef =>
-      Platform.isLinux || Platform.isWindows || Platform.isMacOS;
+  bool get _useCef => Platform.isLinux;
 
   @override
   void initState() {
