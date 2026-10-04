@@ -25,6 +25,8 @@ class _OqbBrowserState extends State<OqbBrowser> {
   String? _bridgeScript;
   cef.WebViewController? _desktopController;
   bool _desktopReady = false;
+  String? _mobileLoadError;
+  int _mobileProgress = 0;
 
   bool get _useCef => Platform.isLinux;
 
@@ -113,27 +115,82 @@ class _OqbBrowserState extends State<OqbBrowser> {
       );
     }
 
-    return InAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        useShouldOverrideUrlLoading: true,
-        sharedCookiesEnabled: true,
-      ),
-      onWebViewCreated: (controller) {
-        controller.addJavaScriptHandler(
-          handlerName: 'betterOqbPageState',
-          callback: (arguments) {
-            if (arguments.isNotEmpty) {
-              widget.bridge.handleMessage(arguments.first);
-            }
-            return {'ok': true};
+    return Stack(
+      children: [
+        InAppWebView(
+          initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
+          initialSettings: InAppWebViewSettings(
+            javaScriptEnabled: true,
+            domStorageEnabled: true,
+            databaseEnabled: true,
+            thirdPartyCookiesEnabled: true,
+            sharedCookiesEnabled: true,
+          ),
+          onWebViewCreated: (controller) {
+            controller.addJavaScriptHandler(
+              handlerName: 'betterOqbPageState',
+              callback: (arguments) {
+                if (arguments.isNotEmpty) {
+                  widget.bridge.handleMessage(arguments.first);
+                }
+                return {'ok': true};
+              },
+            );
           },
-        );
-      },
-      onLoadStop: (controller, _) async {
-        await controller.evaluateJavascript(source: _bridgeScript!);
-      },
+          onLoadStart: (_, __) {
+            if (mounted) {
+              setState(() {
+                _mobileLoadError = null;
+                _mobileProgress = 0;
+              });
+            }
+          },
+          onProgressChanged: (_, progress) {
+            if (mounted) setState(() => _mobileProgress = progress);
+          },
+          onReceivedError: (_, request, error) {
+            if (request.isForMainFrame == true && mounted) {
+              setState(() {
+                _mobileLoadError =
+                    '${error.description} (code ${error.type.toNativeValue()})';
+              });
+            }
+          },
+          onLoadStop: (controller, _) async {
+            if (mounted) setState(() => _mobileProgress = 100);
+            await controller.evaluateJavascript(source: _bridgeScript!);
+          },
+        ),
+        if (_mobileProgress > 0 && _mobileProgress < 100)
+          LinearProgressIndicator(value: _mobileProgress / 100),
+        if (_mobileLoadError != null)
+          Positioned.fill(
+            child: ColoredBox(
+              color: Theme.of(context).colorScheme.surface,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_off, size: 48),
+                      const SizedBox(height: 16),
+                      Text(
+                        'OQB failed to load',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _mobileLoadError!,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
