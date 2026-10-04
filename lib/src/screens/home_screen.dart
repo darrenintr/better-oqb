@@ -13,7 +13,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   OqbPageState _page = const OqbPageState();
-  bool _showInspector = true;
+  bool _showInspector = false;
 
   @override
   Widget build(BuildContext context) {
