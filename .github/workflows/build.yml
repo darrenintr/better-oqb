@@ -39,6 +39,23 @@ jobs:
           cache: true
       - name: Generate Android runner
         run: flutter create --platforms=android .
+      - name: Enable internet access in release APK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+          permission = '<uses-permission android:name="android.permission.INTERNET"/>'
+          if permission not in text:
+              text = text.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n',
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                  '    <uses-permission android:name="android.permission.INTERNET"/>\n',
+                  1,
+              )
+              manifest.write_text(text)
+          PY
       - run: flutter pub get
       - name: Build APK
         run: flutter build apk --release
