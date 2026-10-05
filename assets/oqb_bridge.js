@@ -35,13 +35,25 @@
     let node = input.closest('label');
     if (node && visible(node)) return node;
 
+    const associatedLabel = [...(input.labels || [])].find(visible);
+    if (associatedLabel) return associatedLabel;
+
     node = input.parentElement;
+    let fallback = null;
     for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      if (visible(node) && fallback == null) fallback = node;
       const radios = node.querySelectorAll('input[type="radio"]').length;
       const text = clean(node.innerText);
-      if (radios === 1 && text.length > 0 && text.length < 2500) return node;
+      if (
+        visible(node) &&
+        radios === 1 &&
+        text.length > 0 &&
+        text.length < 2500
+      ) {
+        return node;
+      }
     }
-    return input.parentElement || input;
+    return fallback || input.parentElement || input;
   }
 
   function commonAncestor(nodes) {
@@ -103,10 +115,31 @@
   }
 
   function extractQuestion() {
-    const radios = [...document.querySelectorAll('input[type="radio"]')].filter(visible);
-    if (radios.length < 2 || radios.length > 12) return null;
+    const candidates = [...document.querySelectorAll('input[type="radio"]')]
+      .map((input) => ({ input, container: optionContainer(input) }))
+      .filter(({ container }) => visible(container));
 
-    const optionNodes = radios.map(optionContainer);
+    if (candidates.length < 2) return null;
+
+    let selected = candidates;
+    if (selected.length > 12) {
+      const groups = new Map();
+      for (const candidate of selected) {
+        const name = candidate.input.getAttribute('name') || '__anonymous__';
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(candidate);
+      }
+
+      const plausible = [...groups.values()]
+        .filter((group) => group.length >= 2 && group.length <= 12)
+        .sort((a, b) => b.length - a.length);
+
+      if (plausible.length === 0) return null;
+      selected = plausible[0];
+    }
+
+    const radios = selected.map(({ input }) => input);
+    const optionNodes = selected.map(({ container }) => container);
     const root = questionRoot(optionNodes);
     if (!root) return null;
 
@@ -178,6 +211,17 @@
     };
   }
 
+  function questionRouteState() {
+    const match = location.pathname.match(
+      /^\/paper\/(\d+)\/do(?:\/(\d+))?\/?$/
+    );
+    return {
+      isQuestionRoute: Boolean(match),
+      paperId: match ? Number(match[1]) : 0,
+      questionNumber: match?.[2] ? Number(match[2]) : 0,
+    };
+  }
+
   function snapshot() {
     const headings = unique(
       [...document.querySelectorAll('h1,h2,h3,[role="heading"]')]
@@ -190,12 +234,15 @@
         .map((element) => clean(element.innerText || element.getAttribute('aria-label')))
     );
 
+    const route = questionRouteState();
     const state = {
       url: location.href,
       title: document.title,
       headings,
       actions,
       isLoggedIn: !/login|sign in|登入/i.test(document.body?.innerText || ''),
+      isQuestionRoute: route.isQuestionRoute,
+      routeQuestionNumber: route.questionNumber,
       question: extractQuestion(),
     };
 
@@ -235,8 +282,19 @@
     attributeFilter: ['checked', 'class', 'aria-checked', 'aria-selected'],
   });
 
+  for (const method of ['pushState', 'replaceState']) {
+    const original = history[method];
+    if (typeof original !== 'function') continue;
+    history[method] = function(...args) {
+      const result = original.apply(this, args);
+      schedule();
+      return result;
+    };
+  }
+
   addEventListener('popstate', schedule);
   addEventListener('hashchange', schedule);
+  addEventListener('pageshow', schedule);
   addEventListener('load', schedule);
 
   window.betterOqb = {
