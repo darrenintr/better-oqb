@@ -247,6 +247,65 @@ layer should receive only the parsed data it needs.
 and `save_trial?submit=1` submits work. These endpoints must only run after
 the corresponding explicit user action.
 
+## Better OQB client implementation
+
+How Better OQB uses the endpoints above (see `assets/oqb_api_client.js`,
+`lib/src/services/oqb_api_requests.dart`, `lib/src/services/oqb_repository.dart`):
+
+```text
+Flutter widgets
+  → StudyController / CatalogController
+  → OqbRepository                (typed models, lib/src/models/)
+  → OqbRequests                  (endpoint field layouts, unit tested)
+  → OqbWebViewApiClient          (request ids, timeouts, diagnostics)
+  → window.betterOqbApi.run(id, command, fields)   (inside the WebView)
+  → fetch('/api/...', same-origin, form-urlencoded)
+```
+
+- **Token.** The JS client learns the token from the `token` field of OQB's
+  own same-origin `/api/` requests (forwarded by `oqb_data_bridge.js`), and
+  keeps it in a closure. Only if no request has been seen yet does it look
+  for an obviously named `*token*` key in local/session storage (heuristic;
+  the real storage location has not been captured). Flutter only receives
+  `hasToken: true/false`.
+- **Sesskey.** Captured from `result.trial.sesskey` of any `start_trial`
+  response (OQB's or Better OQB's) and stored per trial id in the closure.
+  A full page reload loses it; Better OQB then resumes the same trial with
+  `start_trial` and retries the save (only if the trial id is unchanged).
+- **Allow-list.** The JS client only runs the commands listed in
+  `COMMANDS` (`getMeta`, `getUserMeta`, `getUsablePackages`, `loadPapers`,
+  `loadSubmittedPapers`, `getUserQuestionStat`, `searchQuestions`,
+  `loadPaper`, `startTrial`, `saveTrial`, `submitTrial`). `saveTrial`
+  always forces `opts[submit]=0`; only the separate `submitTrial` command
+  sends `opts[submit]=1`, and Flutter only issues it after the learner
+  confirms a dialog.
+- **Sanitizing.** Results posted to Flutter have `token`, `sesskey`,
+  `password` and personal identifier keys removed. Signed asset URLs are
+  kept (they are needed to render images) but only held in memory.
+- **Assets.** Images are loaded by Flutter directly; if that fails they are
+  fetched by the WebView (`fetchAsset`, cookies only for same-origin URLs)
+  and returned as a data URL for in-memory rendering.
+
+### Assumptions that a new capture should confirm
+
+These are implemented defensively and isolated in one place each:
+
+| Assumption | Where |
+| --- | --- |
+| A `application/x-www-form-urlencoded` POST is accepted (OQB's own request encoding/headers were not recorded beyond the body). | `oqb_api_client.js` |
+| `time_spent` values are cumulative seconds (we send the server value plus locally elapsed time), not deltas. The capture (`1`/`1` on a fresh trial) fits both readings. | `StudyController._updateFor`, `trialSeconds` |
+| `trial_question[i][status]` is echoed back as the last known status (`null` when unknown, as observed). | `OqbRequests._trialFields` |
+| The submit request carries every answered question (observed: "latest answers and progress state"). | `StudyController.submit` |
+| `save_trial` may echo updated `trial_question` statuses; anything else in its `result` is ignored. | `OqbRepository._statuses` |
+| `choices[]` items are HTML strings, or maps with `content`/`text`/`url`-like keys. | `OqbChoice.fromJson` |
+| `trial.state` may be an object or a JSON string. | `OqbTrial.fromJson` |
+| `/public/meta.json` entries carry a code (`code` or `*_code`) and a name (`title_zh`/`title_en`/`name`…); unknown layouts fall back to raw codes. | `OqbMeta.fromJson` |
+| Error envelopes use `success: false` plus a `message`/`error`/`msg` string. | `OqbWebViewApiClient._errorText` |
+| Detailed `load_paper` exposes `stat` at `result.stat` or `result.paper.stat`; its inner layout is not interpreted yet. Review breakdowns are computed locally from `is_correct`, `topic_code[]` and `difficulty_code`. | `OqbPaperDetail`, `OqbReview` |
+| `get_user_question_stat` result layout is not interpreted yet (repository returns the sanitized map). | `OqbRepository.getUserQuestionStat` |
+| Starting a *preset* paper (`load_papers criteria[preset]=1`) is not mapped; Better OQB sends the learner to the original page for it. | `CatalogView` |
+| Non-multiple-choice `itype` values and long-answer `user_input` formats are not mapped; such questions are shown read-only with an "answer in original OQB" notice and their existing input is echoed back unchanged. | `OqbUserInput`, `StudyView` |
+
 ## Still unknown / needs another focused capture
 
 The main study flow is now mapped. Remaining optional behavior:

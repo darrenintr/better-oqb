@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'oqb_json.dart';
+
 class OqbApiDataEvent {
   const OqbApiDataEvent({
     required this.timestamp,
@@ -135,8 +137,10 @@ class OqbPaperSummary {
     this.canReview,
     this.score,
     this.scoreFull,
+    this.trialId,
   });
 
+  /// Paper id (what start_trial expects).
   final int id;
   final String subjectCode;
   final String title;
@@ -150,9 +154,16 @@ class OqbPaperSummary {
   final num? score;
   final num? scoreFull;
 
+  /// Present on submitted-paper rows.
+  final int? trialId;
+
+  bool get isReviewable => submitted == true && canReview != false;
+
   factory OqbPaperSummary.fromJson(Map<String, dynamic> json) {
+    // Submitted rows carry both paper and trial ids; prefer the explicit
+    // paper_id so we never pass a trial id to start_trial.
     return OqbPaperSummary(
-      id: _asInt(json['id'] ?? json['paper_id']),
+      id: _asInt(json['paper_id'] ?? json['id']),
       subjectCode: json['subject_code']?.toString() ?? '',
       title: json['title']?.toString() ?? 'Untitled paper',
       modeReview: json['mode_review']?.toString() ?? '',
@@ -168,6 +179,7 @@ class OqbPaperSummary {
       scoreFull: json['score_full'] is num
           ? json['score_full'] as num
           : num.tryParse('${json['score_full'] ?? ''}'),
+      trialId: asIntOrNull(json['trial_id']),
     );
   }
 }
@@ -187,62 +199,75 @@ class OqbObservedApiState {
 
   bool get hasCatalog => packages.isNotEmpty;
 
+  /// Distinct subject codes in package order.
+  List<String> get subjects {
+    final seen = <String>{};
+    return [
+      for (final package in packages)
+        if (package.subjectCode.isNotEmpty && seen.add(package.subjectCode))
+          package.subjectCode,
+    ];
+  }
+
+  List<OqbPackageSummary> packagesFor(String subject) =>
+      packages.where((item) => item.subjectCode == subject).toList();
+
+  OqbObservedApiState copyWith({
+    List<OqbPackageSummary>? packages,
+    List<OqbPaperSummary>? availablePapers,
+    Map<String, List<OqbPaperSummary>>? presetPapersBySubject,
+    Map<String, List<OqbPaperSummary>>? submittedPapersBySubject,
+  }) {
+    return OqbObservedApiState(
+      packages: packages ?? this.packages,
+      availablePapers: availablePapers ?? this.availablePapers,
+      presetPapersBySubject: presetPapersBySubject ?? this.presetPapersBySubject,
+      submittedPapersBySubject:
+          submittedPapersBySubject ?? this.submittedPapersBySubject,
+    );
+  }
+
+  OqbObservedApiState withPackages(List<OqbPackageSummary> incoming) =>
+      copyWith(packages: _mergePackages(packages, incoming));
+
+  OqbObservedApiState withPreset(String subject, List<OqbPaperSummary> papers) =>
+      copyWith(presetPapersBySubject: {...presetPapersBySubject, subject: papers});
+
+  OqbObservedApiState withSubmitted(
+    String subject,
+    List<OqbPaperSummary> papers,
+  ) =>
+      copyWith(
+        submittedPapersBySubject: {...submittedPapersBySubject, subject: papers},
+      );
+
+  static List<OqbPackageSummary> parsePackages(dynamic raw) => _parsePackages(raw);
+
+  static List<OqbPaperSummary> parsePapers(dynamic raw) => _parsePapers(raw);
+
+  /// Folds a passively observed OQB API response into the catalog.
   OqbObservedApiState apply(OqbApiDataEvent event) {
     if (!event.success) return this;
+    final form = event.form;
 
-    if (event.path == '/api/get_usable_packages') {
-      return OqbObservedApiState(
-        packages: _mergePackages(packages, _parsePackages(event.result)),
-        availablePapers: availablePapers,
-        presetPapersBySubject: presetPapersBySubject,
-        submittedPapersBySubject: submittedPapersBySubject,
-      );
-    }
-
-    if (event.path == '/api/load_papers') {
-      final papers = _parsePapers(event.result);
-      final form = event.form;
-      final isToSubmit = form['criteria[to_submit]'] == '1';
-      final isPreset = form['criteria[preset]'] == '1';
-      final subject = form['criteria[subject_code]'] ?? '';
-
-      if (isToSubmit) {
-        return OqbObservedApiState(
-          packages: packages,
-          availablePapers: papers,
-          presetPapersBySubject: presetPapersBySubject,
-          submittedPapersBySubject: submittedPapersBySubject,
+    switch (event.path) {
+      case '/api/get_usable_packages':
+        return withPackages(_parsePackages(event.result));
+      case '/api/load_papers':
+        final papers = _parsePapers(event.result);
+        if (form['criteria[to_submit]'] == '1') {
+          return copyWith(availablePapers: papers);
+        }
+        if (form['criteria[preset]'] == '1') {
+          return withPreset(form['criteria[subject_code]'] ?? '', papers);
+        }
+        return this;
+      case '/api/load_submitted_papers':
+        return withSubmitted(
+          form['criteria[subject_code]'] ?? '',
+          _parsePapers(event.result),
         );
-      }
-
-      if (isPreset) {
-        final next = <String, List<OqbPaperSummary>>{
-          ...presetPapersBySubject,
-          subject: papers,
-        };
-        return OqbObservedApiState(
-          packages: packages,
-          availablePapers: availablePapers,
-          presetPapersBySubject: next,
-          submittedPapersBySubject: submittedPapersBySubject,
-        );
-      }
     }
-
-    if (event.path == '/api/load_submitted_papers') {
-      final subject = event.form['criteria[subject_code]'] ?? '';
-      final next = <String, List<OqbPaperSummary>>{
-        ...submittedPapersBySubject,
-        subject: _parsePapers(event.result),
-      };
-      return OqbObservedApiState(
-        packages: packages,
-        availablePapers: availablePapers,
-        presetPapersBySubject: presetPapersBySubject,
-        submittedPapersBySubject: next,
-      );
-    }
-
     return this;
   }
 

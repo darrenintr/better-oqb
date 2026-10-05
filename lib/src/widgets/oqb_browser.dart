@@ -11,14 +11,38 @@ import '../services/oqb_bridge.dart';
 
 class OqbBrowserController {
   Future<dynamic> Function(String source)? _evaluate;
+  final List<VoidCallback> _attachListeners = <VoidCallback>[];
+
+  bool get isAttached => _evaluate != null;
 
   void _attach(Future<dynamic> Function(String source) evaluator) {
     _evaluate = evaluator;
+    for (final listener in List<VoidCallback>.of(_attachListeners)) {
+      listener();
+    }
   }
 
   void _detach() {
     _evaluate = null;
   }
+
+  void addAttachListener(VoidCallback listener) => _attachListeners.add(listener);
+
+  /// Runs [source] in the OQB page. Returns false when no page is attached
+  /// or the script evaluated to `false`. Only the API client and the legacy
+  /// DOM commands below should use this; widgets must not build scripts.
+  Future<bool> evaluate(String source) async {
+    final evaluate = _evaluate;
+    if (evaluate == null) return false;
+    final result = await evaluate(source);
+    return result != false;
+  }
+
+  /// Navigates the OQB page to a same-origin [path] (e.g. a question route).
+  Future<bool> openPath(String path) =>
+      evaluate('window.betterOqbApi ? window.betterOqbApi.navigate(${jsonEncode(path)}) : false;');
+
+  // Legacy DOM commands used only by the compatibility question view.
 
   Future<void> answer(String key) async {
     await _evaluate?.call(
@@ -69,6 +93,7 @@ class OqbBrowser extends StatefulWidget {
 
 class _OqbBrowserState extends State<OqbBrowser> {
   String? _bridgeScript;
+  String? _apiClientScript;
   String? _networkProbeScript;
   String? _dataBridgeScript;
   cef.WebViewController? _desktopController;
@@ -89,31 +114,49 @@ class _OqbBrowserState extends State<OqbBrowser> {
       rootBundle.loadString('assets/oqb_bridge.js'),
       rootBundle.loadString('assets/oqb_network_probe.js'),
       rootBundle.loadString('assets/oqb_data_bridge.js'),
+      rootBundle.loadString('assets/oqb_api_client.js'),
     ]);
     if (!mounted) return;
     final bridgeScript = scripts[0];
     final networkProbeScript = scripts[1];
     final dataBridgeScript = scripts[2];
+    final apiClientScript = scripts[3];
     setState(() {
       _bridgeScript = bridgeScript;
       _networkProbeScript = networkProbeScript;
       _dataBridgeScript = dataBridgeScript;
+      _apiClientScript = apiClientScript;
     });
     if (_useCef) {
-      await _initDesktop(bridgeScript, networkProbeScript, dataBridgeScript);
+      await _initDesktop(
+        bridgeScript,
+        networkProbeScript,
+        dataBridgeScript,
+        apiClientScript,
+      );
     }
   }
 
+  // Injection order matters: the network probe wraps fetch first (so the
+  // inspector sees API-client calls), then the API client captures that fetch,
+  // then the data bridge wraps it again to observe OQB's own traffic only.
   Future<void> _initDesktop(
     String bridgeScript,
     String networkProbeScript,
     String dataBridgeScript,
+    String apiClientScript,
   ) async {
     await cef.WebviewManager().initialize(userAgent: 'BetterOQB/0.1');
     final injected = cef.InjectUserScripts()
       ..add(
         cef.UserScript(
           networkProbeScript,
+          cef.ScriptInjectTime.LOAD_START,
+        ),
+      )
+      ..add(
+        cef.UserScript(
+          apiClientScript,
           cef.ScriptInjectTime.LOAD_START,
         ),
       )
@@ -161,6 +204,18 @@ class _OqbBrowserState extends State<OqbBrowser> {
         },
       ),
       cef.JavascriptChannel(
+        name: 'BetterOqbApi',
+        onMessageReceived: (message) {
+          widget.bridge.handleApiClientMessage(message.message);
+          controller.sendJavaScriptChannelCallBack(
+            false,
+            '{"ok":true}',
+            message.callbackId,
+            message.frameId,
+          );
+        },
+      ),
+      cef.JavascriptChannel(
         name: 'BetterOqbData',
         onMessageReceived: (message) {
           widget.bridge.handleApiData(message.message);
@@ -181,14 +236,18 @@ class _OqbBrowserState extends State<OqbBrowser> {
           await controller.executeJavaScript(
             'window.betterOqbNetwork?.flush();',
           );
+          await controller.executeJavaScript(
+            'window.betterOqbApi && window.betterOqbApi.reportStatus();',
+          );
         },
       ),
     );
 
     await controller.initialize(widget.initialUrl);
-    widget.controller._attach(
-      (source) => controller.executeJavaScript(source),
-    );
+    widget.controller._attach((source) async {
+      await controller.executeJavaScript(source);
+      return true;
+    });
     if (!mounted) {
       controller.dispose();
       return;
@@ -213,6 +272,7 @@ class _OqbBrowserState extends State<OqbBrowser> {
   @override
   Widget build(BuildContext context) {
     if (_bridgeScript == null ||
+        _apiClientScript == null ||
         _networkProbeScript == null ||
         _dataBridgeScript == null) {
       return const Center(child: CircularProgressIndicator());
@@ -237,6 +297,10 @@ class _OqbBrowserState extends State<OqbBrowser> {
           initialUserScripts: UnmodifiableListView<UserScript>([
             UserScript(
               source: _networkProbeScript!,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            ),
+            UserScript(
+              source: _apiClientScript!,
               injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
             ),
             UserScript(
@@ -269,6 +333,15 @@ class _OqbBrowserState extends State<OqbBrowser> {
               callback: (arguments) {
                 if (arguments.isNotEmpty) {
                   widget.bridge.handleNetworkEvent(arguments.first);
+                }
+                return {'ok': true};
+              },
+            );
+            controller.addJavaScriptHandler(
+              handlerName: 'betterOqbApi',
+              callback: (arguments) {
+                if (arguments.isNotEmpty) {
+                  widget.bridge.handleApiClientMessage(arguments.first);
                 }
                 return {'ok': true};
               },
@@ -307,6 +380,9 @@ class _OqbBrowserState extends State<OqbBrowser> {
             await controller.evaluateJavascript(source: _bridgeScript!);
             await controller.evaluateJavascript(
               source: 'window.betterOqbNetwork?.flush();',
+            );
+            await controller.evaluateJavascript(
+              source: 'window.betterOqbApi && window.betterOqbApi.reportStatus();',
             );
           },
         ),
