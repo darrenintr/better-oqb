@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
+import '../models/oqb_network_event.dart';
 import '../models/oqb_page_state.dart';
 import '../services/oqb_bridge.dart';
 import '../widgets/oqb_browser.dart';
+import '../widgets/oqb_network_inspector.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,7 +18,37 @@ class _HomeScreenState extends State<HomeScreen> {
   final OqbBrowserController _browserController = OqbBrowserController();
 
   OqbPageState _page = const OqbPageState();
+  final List<OqbNetworkEvent> _networkEvents = <OqbNetworkEvent>[];
   bool _showOriginal = false;
+
+  void _recordNetworkEvent(OqbNetworkEvent event) {
+    if (!mounted) return;
+    setState(() {
+      _networkEvents.add(event);
+      if (_networkEvents.length > 500) {
+        _networkEvents.removeRange(0, _networkEvents.length - 500);
+      }
+    });
+  }
+
+  Future<void> _openNetworkInspector() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.9,
+        child: OqbNetworkInspector(
+          events: List<OqbNetworkEvent>.unmodifiable(_networkEvents),
+          onClear: () {
+            setState(_networkEvents.clear);
+            _browserController.clearNetworkCapture();
+            Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           });
         },
+        onNetworkEvent: _recordNetworkEvent,
       ),
     );
 
@@ -51,6 +84,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+          IconButton(
+            tooltip: 'OQB API inspector (${_networkEvents.length})',
+            onPressed: _openNetworkInspector,
+            icon: Badge(
+              isLabelVisible: _networkEvents.isNotEmpty,
+              label: Text(
+                _networkEvents.length > 99 ? '99+' : '${_networkEvents.length}',
+              ),
+              child: const Icon(Icons.monitor_heart_outlined),
+            ),
+          ),
           IconButton(
             tooltip: _showOriginal ? 'Use Better OQB view' : 'Open original OQB',
             onPressed: () => setState(() => _showOriginal = !_showOriginal),
