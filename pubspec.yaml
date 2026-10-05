@@ -25,3 +25,17 @@ flutter:
     - assets/oqb_network_probe.js
     - assets/oqb_api_client.js
     - assets/oqb_data_bridge.js
+
+  # Kiln type: variable fonts, SIL Open Font License (see assets/fonts/OFL-*.txt).
+  fonts:
+    - family: Newsreader
+      fonts:
+        - asset: assets/fonts/Newsreader.ttf
+        - asset: assets/fonts/Newsreader-Italic.ttf
+          style: italic
+    - family: InstrumentSans
+      fonts:
+        - asset: assets/fonts/InstrumentSans.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf

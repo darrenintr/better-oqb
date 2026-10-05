@@ -5,6 +5,7 @@ import '../controllers/study_controller.dart';
 import '../models/oqb_meta.dart';
 import '../models/oqb_review.dart';
 import '../models/oqb_trial.dart';
+import '../theme/kiln_theme.dart';
 import '../widgets/oqb_html.dart';
 import '../widgets/question_navigator.dart';
 
@@ -89,7 +90,6 @@ class _StudyViewState extends State<StudyView> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.assignment_turned_in_outlined),
         title: const Text('Submit this paper?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -100,7 +100,7 @@ class _StudyViewState extends State<StudyView> {
               const SizedBox(height: 8),
               Text(
                 '$unanswered question${unanswered == 1 ? '' : 's'} unanswered.',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(color: context.kiln.dangerText),
               ),
             ],
             if (unsaved > 0) ...[
@@ -112,7 +112,7 @@ class _StudyViewState extends State<StudyView> {
           ],
         ),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Keep working'),
           ),
@@ -197,47 +197,50 @@ class _StudyViewState extends State<StudyView> {
                 onOpenOriginal: widget.onOpenOriginal,
               );
 
-              return Column(
-                children: [
-                  _StudyHeader(
-                    controller: _controller,
-                    review: widget.review,
-                    compact: compact,
-                    onExit: widget.onExit,
-                    onSubmit: widget.onSubmit == null ? null : _confirmSubmit,
-                    onOpenOriginal: widget.onOpenOriginal,
-                    onOpenInspector: widget.onOpenInspector,
-                  ),
-                  if (_controller.saveState == OqbSaveState.failed)
-                    _SaveFailedBanner(controller: _controller),
-                  if (_controller.submitError != null && !_controller.isSubmitting)
-                    _ErrorBanner(text: 'Submission failed: ${_controller.submitError}'),
-                  Expanded(
-                    child: showPanel
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                width: 300,
-                                child: _SidePanel(
-                                  controller: _controller,
-                                  review: widget.review,
-                                  meta: widget.meta,
+              return ColoredBox(
+                color: context.kiln.bg,
+                child: Column(
+                  children: [
+                    _StudyHeader(
+                      controller: _controller,
+                      review: widget.review,
+                      compact: compact,
+                      onExit: widget.onExit,
+                      onSubmit: widget.onSubmit == null ? null : _confirmSubmit,
+                      onOpenOriginal: widget.onOpenOriginal,
+                      onOpenInspector: widget.onOpenInspector,
+                    ),
+                    if (_controller.saveState == OqbSaveState.failed)
+                      _SaveFailedBanner(controller: _controller),
+                    if (_controller.submitError != null && !_controller.isSubmitting)
+                      _ErrorBanner(text: 'Submission failed: ${_controller.submitError}'),
+                    Expanded(
+                      child: showPanel
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                SizedBox(
+                                  width: 300,
+                                  child: _SidePanel(
+                                    controller: _controller,
+                                    review: widget.review,
+                                    meta: widget.meta,
+                                  ),
                                 ),
-                              ),
-                              const VerticalDivider(width: 1),
-                              Expanded(child: body),
-                            ],
-                          )
-                        : body,
-                  ),
-                  _BottomBar(
-                    controller: _controller,
-                    compact: compact,
-                    showNavigatorButton: !showPanel,
-                    onOpenNavigator: _openNavigatorSheet,
-                  ),
-                ],
+                                const VerticalDivider(width: 1),
+                                Expanded(child: body),
+                              ],
+                            )
+                          : body,
+                    ),
+                    _BottomBar(
+                      controller: _controller,
+                      compact: compact,
+                      showNavigatorButton: !showPanel,
+                      onOpenNavigator: _openNavigatorSheet,
+                    ),
+                  ],
+                ),
               );
             },
           );
@@ -268,7 +271,8 @@ class _StudyHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final session = controller.session!;
     final total = controller.total;
     final title = session.paper.title.isNotEmpty ? session.paper.title : 'Paper ${session.paper.id}';
@@ -279,12 +283,12 @@ class _StudyHeader extends StatelessWidget {
         : '${controller.answeredCount}/$total answered';
 
     return Material(
-      color: theme.colorScheme.surfaceContainerLow,
+      color: k.bg,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(4, 6, compact ? 4 : 16, 6),
+            padding: EdgeInsets.fromLTRB(compact ? 4 : 12, 8, compact ? 4 : 16, 8),
             child: Row(
               children: [
                 IconButton(
@@ -301,42 +305,40 @@ class _StudyHeader extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium,
+                        style: text.title.copyWith(
+                          fontSize: compact ? 17 : 20,
+                          height: compact ? 22 / 17 : 26 / 20,
+                          fontWeight: FontWeight.w400,
+                          fontVariations: KilnFonts.weight(FontWeight.w400),
+                        ),
                       ),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
+                      Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.caption),
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 if (!controller.isReadOnly) _SaveIndicator(controller: controller, compact: compact),
-                if (review != null) const _Pill(icon: Icons.fact_check_outlined, label: 'Review'),
+                if (review != null)
+                  KilnPill(icon: Icons.fact_check_outlined, label: 'Review', background: k.oat, showLabel: !compact),
                 if (controller.isSubmitted && review == null)
-                  const _Pill(icon: Icons.check_circle_outline, label: 'Submitted'),
+                  KilnPill(icon: Icons.check_circle_outline, label: 'Submitted', background: k.oat, showLabel: !compact),
                 if (onSubmit != null && !controller.isReadOnly) ...[
                   const SizedBox(width: 8),
                   controller.isSubmitting
                       ? const Padding(
-                          padding: EdgeInsets.all(8),
+                          padding: EdgeInsets.all(12),
                           child: SizedBox.square(
                             dimension: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
-                      : compact
-                          ? IconButton.filledTonal(
-                              tooltip: 'Submit paper',
-                              onPressed: onSubmit,
-                              icon: const Icon(Icons.assignment_turned_in_outlined),
-                            )
-                          : FilledButton.tonalIcon(
-                              onPressed: onSubmit,
-                              icon: const Icon(Icons.assignment_turned_in_outlined),
-                              label: const Text('Submit'),
-                            ),
+                      : FilledButton(
+                          onPressed: onSubmit,
+                          style: compact
+                              ? FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14))
+                              : null,
+                          child: const Text('Submit'),
+                        ),
                 ],
                 PopupMenuButton<VoidCallback>(
                   tooltip: 'More',
@@ -345,7 +347,7 @@ class _StudyHeader extends StatelessWidget {
                     PopupMenuItem(
                       value: onOpenOriginal,
                       child: const ListTile(
-                        leading: Icon(Icons.open_in_browser),
+                        leading: Icon(Icons.open_in_new),
                         title: Text('Original OQB page'),
                       ),
                     ),
@@ -362,7 +364,12 @@ class _StudyHeader extends StatelessWidget {
               ],
             ),
           ),
-          LinearProgressIndicator(value: progress, minHeight: 3),
+          // Doubles as the header's bottom hairline.
+          Semantics(
+            label: 'Progress',
+            value: '${controller.answeredCount} of $total answered',
+            child: LinearProgressIndicator(value: progress, minHeight: 2),
+          ),
         ],
       ),
     );
@@ -390,16 +397,16 @@ class _SaveIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final k = context.kiln;
     final (IconData icon, String label, Color color) = switch (controller.saveState) {
       OqbSaveState.saved => (
           Icons.cloud_done_outlined,
           controller.lastSavedAt == null ? 'Synced' : 'Saved',
-          scheme.primary,
+          k.successText,
         ),
-      OqbSaveState.pending => (Icons.cloud_queue, 'Unsaved', scheme.tertiary),
-      OqbSaveState.saving => (Icons.cloud_upload_outlined, 'Saving…', scheme.tertiary),
-      OqbSaveState.failed => (Icons.cloud_off_outlined, 'Not saved', scheme.error),
+      OqbSaveState.pending => (Icons.cloud_queue, 'Unsaved', k.inkMuted),
+      OqbSaveState.saving => (Icons.cloud_upload_outlined, 'Saving…', k.inkMuted),
+      OqbSaveState.failed => (Icons.cloud_off_outlined, 'Not saved', k.dangerText),
     };
     return Tooltip(
       message: switch (controller.saveState) {
@@ -411,47 +418,7 @@ class _SaveIndicator extends StatelessWidget {
       child: Semantics(
         liveRegion: true,
         label: label,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 20, color: color),
-              if (!compact) ...[
-                const SizedBox(width: 6),
-                Text(label, style: TextStyle(color: color)),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(left: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: scheme.onSecondaryContainer),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(color: scheme.onSecondaryContainer)),
-        ],
+        child: KilnPill(icon: icon, label: label, color: color, showLabel: !compact),
       ),
     );
   }
@@ -464,30 +431,15 @@ class _SaveFailedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        child: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: scheme.onErrorContainer),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '${controller.unsavedCount} answer(s) not saved yet. They are kept '
-                'here until OQB accepts them. (${controller.saveError})',
-                style: TextStyle(color: scheme.onErrorContainer),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            TextButton(
-              onPressed: controller.retryNow,
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
+    return KilnBanner(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      danger: true,
+      icon: Icons.cloud_off_outlined,
+      title: '${controller.unsavedCount} answer(s) not saved yet',
+      message: 'They are kept here until OQB accepts them. (${controller.saveError})',
+      action: OutlinedButton(
+        onPressed: controller.retryNow,
+        child: const Text('Retry'),
       ),
     );
   }
@@ -500,13 +452,11 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Text(text, style: TextStyle(color: scheme.onErrorContainer)),
-      ),
+    return KilnBanner(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      danger: true,
+      icon: Icons.error_outline,
+      title: text,
     );
   }
 }
@@ -520,29 +470,37 @@ class _SidePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final session = controller.session!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (review != null) ...[
-            _ReviewSummary(review: review!, meta: meta),
-            const SizedBox(height: 16),
-          ] else ...[
-            Text('Questions', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              '${controller.answeredCount} answered · '
-              '${controller.total - controller.answeredCount} to do'
-              '${session.paper.subjectCode.isEmpty ? '' : ' · ${meta.label(session.paper.subjectCode)}'}',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
+    return ColoredBox(
+      color: k.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (review != null) ...[
+              _ReviewSummary(review: review!, meta: meta),
+              const SizedBox(height: 16),
+            ] else ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(child: Text('Questions', style: text.label)),
+                  Text('${controller.answeredCount} of ${controller.total} answered', style: text.caption),
+                ],
+              ),
+              if (session.paper.subjectCode.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(meta.label(session.paper.subjectCode), style: text.caption),
+              ],
+              const SizedBox(height: 16),
+            ],
+            Expanded(child: QuestionNavigator(controller: controller)),
           ],
-          Expanded(child: QuestionNavigator(controller: controller)),
-        ],
+        ),
       ),
     );
   }
@@ -556,19 +514,20 @@ class _ReviewSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final score = review.score;
     final full = review.scoreFull;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 320),
+      constraints: const BoxConstraints(maxHeight: 360),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Result', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 6),
+            Text('RESULT', style: text.eyebrow.copyWith(color: k.clayText)),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: 16,
+              spacing: 8,
               runSpacing: 8,
               children: [
                 if (score != null)
@@ -584,18 +543,18 @@ class _ReviewSummary extends StatelessWidget {
               ],
             ),
             if (review.hasCorrectness && review.byTopic.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Text('By topic', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 6),
+              const SizedBox(height: 18),
+              Text('By topic', style: text.label),
+              const SizedBox(height: 8),
               for (final row in review.byTopic)
-                _BreakdownBar(label: meta.label(row.key), row: row),
+                _BreakdownBar(label: meta.label(row.key), row: row, color: k.olive),
             ],
             if (review.hasCorrectness && review.byDifficulty.length > 1) ...[
               const SizedBox(height: 10),
-              Text('By difficulty', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 6),
+              Text('By difficulty', style: text.label),
+              const SizedBox(height: 8),
               for (final row in review.byDifficulty)
-                _BreakdownBar(label: meta.difficulty(int.tryParse(row.key) ?? 0), row: row),
+                _BreakdownBar(label: meta.difficulty(int.tryParse(row.key) ?? 0), row: row, color: k.sky),
             ],
           ],
         ),
@@ -619,45 +578,65 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: theme.textTheme.labelSmall),
-        Text(value, style: theme.textTheme.titleMedium),
-      ],
+    final k = context.kiln;
+    final text = context.kilnText;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 116),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: k.bg,
+        border: Border.all(color: k.hairline),
+        borderRadius: BorderRadius.circular(KilnRadius.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: text.caption),
+          Text(
+            value,
+            style: text.title.copyWith(
+              fontSize: 24,
+              height: 30 / 24,
+              fontWeight: FontWeight.w400,
+              fontVariations: KilnFonts.weight(FontWeight.w400),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _BreakdownBar extends StatelessWidget {
-  const _BreakdownBar({required this.label, required this.row});
+  const _BreakdownBar({required this.label, required this.row, required this.color});
 
   final String label;
   final OqbBreakdownRow row;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final text = context.kilnText;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.caption.copyWith(color: context.kiln.ink)),
               ),
-              Text('${row.correct}/${row.total}', style: theme.textTheme.bodySmall),
+              Text('${row.correct}/${row.total}', style: text.caption),
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           LinearProgressIndicator(
             value: row.ratio,
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(3),
+            minHeight: 8,
+            color: color,
+            borderRadius: BorderRadius.circular(999),
           ),
         ],
       ),
@@ -685,11 +664,12 @@ class _QuestionBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final padding = compact ? 12.0 : 24.0;
+    final padding = compact ? 16.0 : 32.0;
     final stem = _QuestionStem(
       controller: controller,
       question: question,
       meta: meta,
+      compact: compact,
       onOpenOriginal: onOpenOriginal,
     );
     final answers = _AnswerSection(controller: controller, question: question);
@@ -747,25 +727,24 @@ class _QuestionStem extends StatelessWidget {
     required this.controller,
     required this.question,
     required this.meta,
+    required this.compact,
     required this.onOpenOriginal,
   });
 
   final StudyController controller;
   final OqbTrialQuestion question;
   final OqbMeta meta;
+  final bool compact;
   final VoidCallback onOpenOriginal;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final content = question.question;
-    final tags = <String>[
-      if (content != null && content.year.isNotEmpty)
-        content.questionNo.isNotEmpty ? '${content.year} Q${content.questionNo}' : content.year,
-      if (content != null)
-        for (final topic in content.topicCodes.take(2)) meta.label(topic),
-      if (content != null && content.difficultyCode > 0) meta.difficulty(content.difficultyCode),
-    ];
+    final year = content != null && content.year.isNotEmpty
+        ? (content.questionNo.isNotEmpty ? '${content.year} Q${content.questionNo}' : content.year)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -777,17 +756,12 @@ class _QuestionStem extends StatelessWidget {
           children: [
             Text(
               'Question ${controller.questionNumber} of ${controller.total}',
-              style: theme.textTheme.titleLarge,
+              style: text.label.copyWith(color: k.clayText),
             ),
-            for (final tag in tags)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(tag, style: theme.textTheme.labelMedium),
-              ),
+            if (year != null) KilnTag(year),
+            if (content != null)
+              for (final topic in content.topicCodes.take(2)) KilnTag(meta.label(topic), outlined: true),
+            if (content != null && content.difficultyCode > 0) KilnTag(meta.difficulty(content.difficultyCode)),
           ],
         ),
         const SizedBox(height: 16),
@@ -799,7 +773,10 @@ class _QuestionStem extends StatelessWidget {
         else ...[
           OqbHtml(
             content.displayContent,
-            textStyle: theme.textTheme.bodyLarge?.copyWith(height: 1.5, fontSize: 17),
+            textStyle: text.prose.copyWith(
+              fontSize: compact ? 19 : 21,
+              height: compact ? 30 / 19 : 33 / 21,
+            ),
           ),
           if (content.url.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -830,12 +807,10 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.info_outline),
-        title: Text(text),
-        trailing: TextButton(onPressed: onOpenOriginal, child: const Text('Original OQB')),
-      ),
+    return KilnBanner(
+      icon: Icons.info_outline,
+      title: text,
+      action: TextButton(onPressed: onOpenOriginal, child: const Text('Original OQB')),
     );
   }
 }
@@ -848,7 +823,8 @@ class _AnswerSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final content = question.question;
     final answer = controller.answerFor(question);
     final review = controller.isReadOnly;
@@ -856,22 +832,26 @@ class _AnswerSection extends StatelessWidget {
     final key = review ? content?.suggestedAnswer : (shown ? controller.answerKeyFor(question) : null);
 
     if (content == null || !content.isMultipleChoice) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Answer', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(
-                answer.isNotEmpty
-                    ? 'Your answer: ${answer.raw ?? answer.serialize()}'
-                    : 'This question type is answered in the original OQB page.',
-              ),
-              if (review) ..._reviewExtras(context, content),
-            ],
-          ),
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: k.surface,
+          border: Border.all(color: k.hairline),
+          borderRadius: BorderRadius.circular(KilnRadius.lg),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Answer', style: text.label),
+            const SizedBox(height: 8),
+            Text(
+              answer.isNotEmpty
+                  ? 'Your answer: ${answer.raw ?? answer.serialize()}'
+                  : 'This question type is answered in the original OQB page.',
+              style: text.body,
+            ),
+            if (review) ..._reviewExtras(context, content),
+          ],
         ),
       );
     }
@@ -879,6 +859,8 @@ class _AnswerSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text('Answer', style: text.label),
+        const SizedBox(height: 12),
         for (final choice in content.choices) ...[
           _AnswerCard(
             choice: choice,
@@ -902,20 +884,19 @@ class _AnswerSection extends StatelessWidget {
   }
 
   Widget _verdict(BuildContext context, String label, bool correct, {num? score}) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
+    final color = correct ? k.successText : k.dangerText;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(
-            correct ? Icons.check_circle : Icons.cancel,
-            color: correct ? Colors.green.shade700 : theme.colorScheme.error,
-          ),
+          Icon(correct ? Icons.check_circle : Icons.cancel, color: color, size: 22),
           const SizedBox(width: 8),
-          Text(label, style: theme.textTheme.titleMedium),
+          Text(label, style: text.label.copyWith(fontSize: 17, color: color)),
           if (score != null) ...[
             const Spacer(),
-            Text('Score ${_fmt(score)}'),
+            Text('Score ${_fmt(score)}', style: text.caption),
           ],
         ],
       ),
@@ -948,7 +929,7 @@ class _AnswerSection extends StatelessWidget {
             if (checking && !busy && !failed)
               Text(
                 'OQB has not sent this answer yet.',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: context.kilnText.caption,
               ),
           ],
         ),
@@ -957,7 +938,8 @@ class _AnswerSection extends StatelessWidget {
   }
 
   List<Widget> _reviewExtras(BuildContext context, OqbQuestionContent? content) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final widgets = <Widget>[];
     final verdict = question.isCorrect;
     if (verdict != null) {
@@ -973,19 +955,20 @@ class _AnswerSection extends StatelessWidget {
       ('Feedback', content?.feedback ?? ''),
     ]) {
       if (html.trim().isEmpty) continue;
-      widgets.add(Card(
-        elevation: 0,
-        color: theme.colorScheme.surfaceContainerLow,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(title, style: theme.textTheme.titleSmall),
-              const SizedBox(height: 8),
-              OqbHtml(html, textStyle: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
-            ],
-          ),
+      widgets.add(Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: k.surface,
+          borderRadius: BorderRadius.circular(KilnRadius.md),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: text.label),
+            const SizedBox(height: 8),
+            OqbHtml(html, textStyle: text.prose),
+          ],
         ),
       ));
     }
@@ -1012,32 +995,37 @@ class _AnswerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final k = context.kiln;
+    final text = context.kilnText;
 
-    var background = scheme.surfaceContainerLow;
-    var badge = scheme.surfaceContainerHighest;
-    var badgeText = scheme.onSurface;
-    Color? border;
-    IconData? trailing;
+    var background = k.surfaceRaised;
+    var badge = k.surface;
+    var badgeText = k.ink;
+    var border = BorderSide(color: k.borderControl);
+    // Correctness is always an icon and a word, not colour alone.
+    (IconData, String, Color)? verdict;
     var semantics = 'Choice ${choice.label}';
 
     if (selected) {
-      background = scheme.primaryContainer;
-      badge = scheme.primary;
-      badgeText = scheme.onPrimary;
+      background = k.oat;
+      badge = k.ink;
+      badgeText = k.onInk;
+      border = BorderSide(color: k.ink, width: 2);
       semantics += ', selected';
     }
     if (correct == true) {
-      border = Colors.green.shade600;
-      trailing = Icons.check_circle;
-      if (!selected) background = Colors.green.withValues(alpha: 0.08);
+      background = k.surfaceRaised;
+      badge = k.successText;
+      badgeText = k.bg;
+      border = BorderSide(color: k.successText, width: 2);
+      verdict = (Icons.check_circle, selected ? 'Your answer' : 'Answer', k.successText);
       semantics += ', correct answer';
     } else if (correct == false && selected) {
-      background = scheme.errorContainer;
-      badge = scheme.error;
-      badgeText = scheme.onError;
-      trailing = Icons.cancel;
+      background = k.surfaceRaised;
+      badge = k.dangerText;
+      badgeText = k.bg;
+      border = BorderSide(color: k.dangerText, width: 2);
+      verdict = (Icons.cancel, 'Your answer', k.dangerText);
     }
 
     return Semantics(
@@ -1047,52 +1035,72 @@ class _AnswerCard extends StatelessWidget {
       child: Material(
         color: background,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: border ?? (selected ? scheme.primary : scheme.outlineVariant),
-            width: border != null || selected ? 2 : 1,
-          ),
+          borderRadius: BorderRadius.circular(KilnRadius.md),
+          side: border,
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: enabled ? onTap : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: badge),
-                  alignment: Alignment.center,
-                  child: Text(choice.label, style: theme.textTheme.titleMedium?.copyWith(color: badgeText)),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        OqbHtml(
-                          choice.displayHtml,
-                          textStyle: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
-                        ),
-                        if (choice.imageUrl.isNotEmpty) ...[
-                          if (choice.displayHtml.trim().isNotEmpty) const SizedBox(height: 8),
-                          OqbImage(url: resolveOqbUrl(choice.imageUrl)),
-                        ],
-                      ],
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: badge,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      choice.label,
+                      style: text.label.copyWith(
+                        color: badgeText,
+                        fontWeight: FontWeight.w600,
+                        fontVariations: KilnFonts.weight(FontWeight.w600),
+                      ),
                     ),
                   ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
-                  Icon(trailing, color: correct == true ? Colors.green.shade700 : scheme.error),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          OqbHtml(
+                            choice.displayHtml,
+                            textStyle: text.prose.copyWith(height: 26 / 18),
+                          ),
+                          if (choice.imageUrl.isNotEmpty) ...[
+                            if (choice.displayHtml.trim().isNotEmpty) const SizedBox(height: 8),
+                            OqbImage(url: resolveOqbUrl(choice.imageUrl)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (verdict != null) ...[
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(verdict.$1, size: 18, color: verdict.$3),
+                          const SizedBox(width: 4),
+                          Text(verdict.$2, style: text.label.copyWith(fontSize: 13, color: verdict.$3)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -1116,22 +1124,27 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final position = '${controller.questionNumber} / ${controller.total}';
+    final accent = kilnAccentButtonStyle(k);
 
-    return Material(
-      elevation: 6,
-      color: theme.colorScheme.surface,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: k.bg,
+        border: Border(top: BorderSide(color: k.hairline)),
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 24, vertical: 10),
           child: Row(
             children: [
               compact
                   ? IconButton.outlined(
                       tooltip: 'Previous question',
                       onPressed: controller.hasPrevious ? controller.previous : null,
+                      style: IconButton.styleFrom(side: BorderSide(color: k.borderControl)),
                       icon: const Icon(Icons.chevron_left),
                     )
                   : OutlinedButton.icon(
@@ -1139,25 +1152,34 @@ class _BottomBar extends StatelessWidget {
                       icon: const Icon(Icons.chevron_left),
                       label: const Text('Previous'),
                     ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Center(
                   child: showNavigatorButton
                       ? TextButton.icon(
                           onPressed: onOpenNavigator,
-                          icon: const Icon(Icons.grid_view_rounded),
+                          style: TextButton.styleFrom(
+                            backgroundColor: k.surface,
+                            foregroundColor: k.ink,
+                            minimumSize: const Size(120, 44),
+                          ),
+                          icon: const Icon(Icons.grid_view_rounded, size: 18),
                           label: Text(position),
                         )
-                      : Text(position, style: theme.textTheme.titleSmall),
+                      : Text(position, style: text.body.copyWith(color: k.inkMuted)),
                 ),
               ),
+              const SizedBox(width: 8),
               compact
                   ? IconButton.filled(
                       tooltip: 'Next question',
                       onPressed: controller.hasNext ? controller.next : null,
+                      style: accent,
                       icon: const Icon(Icons.chevron_right),
                     )
                   : FilledButton.icon(
                       onPressed: controller.hasNext ? controller.next : null,
+                      style: accent,
                       iconAlignment: IconAlignment.end,
                       icon: const Icon(Icons.chevron_right),
                       label: const Text('Next'),
@@ -1178,18 +1200,24 @@ class _EmptyTrial extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final text = context.kilnText;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.help_outline, size: 48),
+            Icon(Icons.help_outline, size: 40, color: context.kiln.inkMuted),
             const SizedBox(height: 12),
-            const Text('OQB returned this attempt without any questions.', textAlign: TextAlign.center),
+            Text(
+              'OQB returned this attempt without any questions.',
+              textAlign: TextAlign.center,
+              style: text.title.copyWith(fontSize: 20, height: 28 / 20),
+            ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
+              runSpacing: 8,
               children: [
                 OutlinedButton(onPressed: onExit, child: const Text('Back to papers')),
                 FilledButton(onPressed: onOpenOriginal, child: const Text('Open original OQB')),

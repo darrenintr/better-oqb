@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/catalog_controller.dart';
 import '../models/oqb_api_data.dart';
 import '../models/oqb_meta.dart';
+import '../theme/kiln_theme.dart';
 
 /// Better OQB home: resumable papers, subjects, banks, topic/difficulty
 /// availability and submitted attempts — all from the authenticated API.
@@ -119,21 +120,26 @@ class _Overview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final data = controller.data;
     final meta = controller.meta;
     final papers = data.availablePapers;
 
     return RefreshIndicator(
       onRefresh: controller.refresh,
+      color: k.ink,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
         children: [
           Row(
             children: [
-              Expanded(child: Text('Study', style: theme.textTheme.headlineSmall)),
+              Expanded(child: Text('Study', style: text.title)),
               if (controller.isLoading)
-                const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
               else
                 IconButton(
                   tooltip: 'Refresh',
@@ -142,51 +148,52 @@ class _Overview extends StatelessWidget {
                 ),
             ],
           ),
-          if (controller.error != null) ...[
-            const SizedBox(height: 8),
-            Card(
-              color: theme.colorScheme.errorContainer,
-              child: ListTile(
-                leading: const Icon(Icons.error_outline),
-                title: const Text('Some OQB data could not be loaded'),
-                subtitle: Text('${controller.error}'),
-              ),
+          if (controller.error != null)
+            KilnBanner(
+              margin: const EdgeInsets.only(top: 12),
+              danger: true,
+              icon: Icons.error_outline,
+              title: 'Some OQB data could not be loaded',
+              message: '${controller.error}',
+              action: OutlinedButton(onPressed: controller.refresh, child: const Text('Retry')),
             ),
-          ],
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           _SectionTitle(
             title: 'Continue',
-            trailing: TextButton.icon(
+            trailing: FilledButton.icon(
               onPressed: onCreatePaper,
+              style: kilnAccentButtonStyle(k),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('New paper'),
             ),
           ),
           if (papers.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                controller.hasLoaded
-                    ? 'No papers waiting. Create one or pick a preset paper from a subject.'
-                    : 'Loading papers…',
-                style: theme.textTheme.bodyMedium,
-              ),
+            _EmptyNote(
+              controller.hasLoaded
+                  ? 'No papers waiting. Create one or pick a preset paper from a subject.'
+                  : 'Loading papers…',
             )
           else
-            for (final paper in papers)
-              _PaperCard(
-                paper: paper,
-                subtitle: [
-                  if (paper.subjectCode.isNotEmpty) meta.label(paper.subjectCode),
-                  if (paper.numQuestions > 0) '${paper.numQuestions} questions',
-                  if (paper.isTeacher) 'From teacher',
-                ].join(' · '),
-                actionLabel: 'Start / resume',
-                icon: Icons.play_arrow_rounded,
-                onAction: () => onStartPaper(paper),
-              ),
-          const SizedBox(height: 24),
-          const _SectionTitle(title: 'Subjects'),
+            _RowGroup(
+              children: [
+                for (final paper in papers)
+                  _PaperRow(
+                    paper: paper,
+                    subtitle: [
+                      if (paper.subjectCode.isNotEmpty) meta.label(paper.subjectCode),
+                      if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                      if (paper.isTeacher) 'From teacher',
+                    ].join(' · '),
+                    actionLabel: 'Start / resume',
+                    onAction: () => onStartPaper(paper),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 32),
+          Padding(
+            padding: const EdgeInsets.only(left: 12, bottom: 8),
+            child: Text('SUBJECTS', style: text.eyebrow),
+          ),
           for (final subject in data.subjects)
             _SubjectTile(
               subject: subject,
@@ -194,6 +201,7 @@ class _Overview extends StatelessWidget {
               packages: data.packagesFor(subject),
               submitted: data.submittedPapersBySubject[subject] ?? const [],
               selected: !compact && subject == selectedSubject,
+              showChevron: compact,
               onTap: () => onSelectSubject(subject),
             ),
         ],
@@ -211,10 +219,12 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+          Expanded(
+            child: Text(title, style: context.kilnText.title.copyWith(fontSize: 22, height: 28 / 22)),
+          ),
           if (trailing != null) trailing!,
         ],
       ),
@@ -222,12 +232,49 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _PaperCard extends StatelessWidget {
-  const _PaperCard({
+class _EmptyNote extends StatelessWidget {
+  const _EmptyNote(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(text, style: context.kilnText.caption),
+    );
+  }
+}
+
+/// List rows separated by hairlines, with a hairline above the first.
+class _RowGroup extends StatelessWidget {
+  const _RowGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final hairline = BorderSide(color: context.kiln.hairline);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(top: i == 0 ? hairline : BorderSide.none, bottom: hairline),
+            ),
+            child: children[i],
+          ),
+      ],
+    );
+  }
+}
+
+class _PaperRow extends StatelessWidget {
+  const _PaperRow({
     required this.paper,
     required this.subtitle,
     required this.actionLabel,
-    required this.icon,
     required this.onAction,
     this.trailingText,
   });
@@ -235,50 +282,51 @@ class _PaperCard extends StatelessWidget {
   final OqbPaperSummary paper;
   final String subtitle;
   final String actionLabel;
-  final IconData icon;
   final VoidCallback? onAction;
   final String? trailingText;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      clipBehavior: Clip.antiAlias,
+    final k = context.kiln;
+    final text = context.kilnText;
+    return Semantics(
+      button: onAction != null,
       child: InkWell(
         onTap: onAction,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      paper.title.isEmpty ? 'Paper ${paper.id}' : paper.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(subtitle, style: theme.textTheme.bodySmall),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        paper.title.isEmpty ? 'Paper ${paper.id}' : paper.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.label,
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(subtitle, style: text.caption),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              if (trailingText != null) ...[
-                const SizedBox(width: 8),
-                Text(trailingText!, style: theme.textTheme.titleMedium),
+                if (trailingText != null) ...[
+                  const SizedBox(width: 12),
+                  Text(trailingText!, style: text.title.copyWith(fontSize: 20, height: 26 / 20)),
+                ],
+                const SizedBox(width: 12),
+                Text(
+                  actionLabel,
+                  style: text.label.copyWith(color: onAction == null ? k.inkMuted : k.clayText),
+                ),
               ],
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: actionLabel,
-                onPressed: onAction,
-                icon: Icon(icon),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -293,6 +341,7 @@ class _SubjectTile extends StatelessWidget {
     required this.packages,
     required this.submitted,
     required this.selected,
+    required this.showChevron,
     required this.onTap,
   });
 
@@ -301,36 +350,58 @@ class _SubjectTile extends StatelessWidget {
   final List<OqbPackageSummary> packages;
   final List<OqbPaperSummary> submitted;
   final bool selected;
+  final bool showChevron;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final questions = packages.fold<int>(0, (sum, item) => sum + item.questionCount);
     final label = meta.label(subject);
     final publishers = packages.map((item) => meta.label(item.publisherCode)).where((p) => p.isNotEmpty).toSet();
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      color: selected ? theme.colorScheme.secondaryContainer : null,
-      clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        onTap: onTap,
-        leading: CircleAvatar(
-          child: Text(label.isEmpty ? '?' : label.characters.first.toUpperCase()),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Semantics(
+        selected: selected,
+        button: true,
+        child: Material(
+          color: selected ? k.oat : Colors.transparent,
+          borderRadius: BorderRadius.circular(KilnRadius.md),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(KilnRadius.md),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label == subject ? subject.toUpperCase() : label, style: text.label),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            '${packages.length} bank${packages.length == 1 ? '' : 's'}',
+                            if (questions > 0) '$questions questions',
+                            if (submitted.isNotEmpty) '${submitted.length} submitted',
+                            if (publishers.isNotEmpty) publishers.take(3).join(', '),
+                          ].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.caption,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (showChevron) Icon(Icons.chevron_right, color: k.inkMuted),
+                ],
+              ),
+            ),
+          ),
         ),
-        title: Text(label == subject ? subject.toUpperCase() : label),
-        subtitle: Text(
-          [
-            '${packages.length} bank${packages.length == 1 ? '' : 's'}',
-            if (questions > 0) '$questions questions',
-            if (submitted.isNotEmpty) '${submitted.length} submitted',
-            if (publishers.isNotEmpty) publishers.take(3).join(', '),
-          ].join(' · '),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }
@@ -356,7 +427,8 @@ class _SubjectDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final data = controller.data;
     final meta = controller.meta;
     final packages = data.packagesFor(subject);
@@ -364,9 +436,10 @@ class _SubjectDetail extends StatelessWidget {
     final preset = data.presetPapersBySubject[subject];
     final loading = controller.isSubjectLoading(subject);
     final error = controller.subjectError(subject);
+    final compact = onBack != null;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+      padding: EdgeInsets.fromLTRB(compact ? 16 : 32, compact ? 16 : 40, compact ? 16 : 32, 48),
       children: [
         Center(
           child: ConstrainedBox(
@@ -385,11 +458,14 @@ class _SubjectDetail extends StatelessWidget {
                     Expanded(
                       child: Text(
                         meta.label(subject) == subject ? subject.toUpperCase() : meta.label(subject),
-                        style: theme.textTheme.headlineSmall,
+                        style: compact ? text.title : text.headline,
                       ),
                     ),
                     if (loading)
-                      const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
                     else
                       IconButton(
                         tooltip: 'Refresh subject',
@@ -399,63 +475,83 @@ class _SubjectDetail extends StatelessWidget {
                   ],
                 ),
                 if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text('Could not load papers: $error', style: TextStyle(color: theme.colorScheme.error)),
+                  KilnBanner(
+                    margin: const EdgeInsets.only(top: 12),
+                    danger: true,
+                    icon: Icons.error_outline,
+                    title: 'Could not load papers',
+                    message: '$error',
+                    action: OutlinedButton(
+                      onPressed: () => controller.loadSubject(subject),
+                      child: const Text('Retry'),
+                    ),
                   ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 32),
                 const _SectionTitle(title: 'Submitted attempts'),
                 if (submitted == null)
-                  Text(loading ? 'Loading…' : 'Not loaded yet.', style: theme.textTheme.bodySmall)
+                  _EmptyNote(loading ? 'Loading…' : 'Not loaded yet.')
                 else if (submitted.isEmpty)
-                  Text('No submitted attempts yet.', style: theme.textTheme.bodySmall)
+                  const _EmptyNote('No submitted attempts yet.')
                 else
-                  for (final paper in submitted)
-                    _PaperCard(
-                      paper: paper,
-                      subtitle: [
-                        if (paper.numQuestions > 0) '${paper.numQuestions} questions',
-                        if (paper.marked == false) 'Awaiting marking',
-                        if (!paper.isReviewable) 'Review not available',
-                      ].join(' · '),
-                      trailingText: paper.score == null
-                          ? null
-                          : '${_fmt(paper.score!)}${paper.scoreFull == null ? '' : '/${_fmt(paper.scoreFull!)}'}',
-                      actionLabel: 'Review',
-                      icon: Icons.fact_check_outlined,
-                      onAction: paper.isReviewable ? () => onReviewPaper(paper) : null,
-                    ),
-                const SizedBox(height: 24),
+                  _RowGroup(
+                    children: [
+                      for (final paper in submitted)
+                        _PaperRow(
+                          paper: paper,
+                          subtitle: [
+                            if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                            if (paper.marked == false) 'Awaiting marking',
+                            if (!paper.isReviewable) 'Review not available',
+                          ].join(' · '),
+                          trailingText: paper.score == null
+                              ? null
+                              : '${_fmt(paper.score!)}${paper.scoreFull == null ? '' : '/${_fmt(paper.scoreFull!)}'}',
+                          actionLabel: 'Review',
+                          onAction: paper.isReviewable ? () => onReviewPaper(paper) : null,
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 40),
                 _SectionTitle(
                   title: 'Preset papers',
                   trailing: TextButton(onPressed: onOpenOriginal, child: const Text('Open in OQB')),
                 ),
                 if (preset == null)
-                  Text(loading ? 'Loading…' : 'Not loaded yet.', style: theme.textTheme.bodySmall)
+                  _EmptyNote(loading ? 'Loading…' : 'Not loaded yet.')
                 else if (preset.isEmpty)
-                  Text('No preset papers for this subject.', style: theme.textTheme.bodySmall)
+                  const _EmptyNote('No preset papers for this subject.')
                 else ...[
-                  Text(
-                    'Preset papers are started from the original OQB page, which creates your copy.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 8),
-                  for (final paper in preset)
-                    _PaperCard(
-                      paper: paper,
-                      subtitle: [
-                        if (paper.numQuestions > 0) '${paper.numQuestions} questions',
-                        if (paper.isTeacher) 'Teacher',
-                      ].join(' · '),
-                      actionLabel: 'Open in original OQB',
-                      icon: Icons.open_in_browser,
-                      onAction: onOpenOriginal,
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Preset papers are started from the original OQB page, which creates your copy.',
+                      style: text.caption,
                     ),
+                  ),
+                  _RowGroup(
+                    children: [
+                      for (final paper in preset)
+                        _PaperRow(
+                          paper: paper,
+                          subtitle: [
+                            if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                            if (paper.isTeacher) 'Teacher',
+                          ].join(' · '),
+                          actionLabel: 'Open in OQB',
+                          onAction: onOpenOriginal,
+                        ),
+                    ],
+                  ),
                 ],
-                const SizedBox(height: 24),
+                const SizedBox(height: 40),
                 const _SectionTitle(title: 'Question banks'),
-                for (final package in packages)
-                  _PackageCard(package: package, meta: meta),
+                _RowGroup(
+                  children: [
+                    for (final package in packages) _PackageCard(package: package, meta: meta),
+                  ],
+                ),
+                if (packages.isEmpty)
+                  Text('No question banks for this subject.', style: text.caption.copyWith(color: k.inkMuted)),
               ],
             ),
           ),
@@ -476,57 +572,56 @@ class _PackageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final text = context.kilnText;
     final topics = package.topicCounts.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
     final difficulties = <int>{
       for (final counts in package.topicDifficultyCounts.values) ...counts.keys,
     }.toList()
       ..sort();
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(package.displayTitle, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                if (package.publisherCode.isNotEmpty) Chip(label: Text(meta.label(package.publisherCode))),
-                if (package.questionCount > 0) Chip(label: Text('${package.questionCount} questions')),
-                for (final access in package.accessType) Chip(label: Text(access)),
-              ],
-            ),
-            if (topics.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              if (difficulties.isNotEmpty) _DifficultyLegend(difficulties: difficulties, meta: meta),
-              for (final topic in topics)
-                _TopicRow(
-                  label: meta.label(topic.key),
-                  count: topic.value,
-                  perDifficulty: package.topicDifficultyCounts[topic.key] ?? const {},
-                  difficulties: difficulties,
-                ),
-            ] else
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text('Topic statistics not provided for this bank.', style: theme.textTheme.bodySmall),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(package.displayTitle, style: text.label.copyWith(fontSize: 17, height: 24 / 17)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              if (package.publisherCode.isNotEmpty) KilnTag(meta.label(package.publisherCode)),
+              if (package.questionCount > 0) KilnTag('${package.questionCount} questions'),
+              for (final access in package.accessType) KilnTag(access, outlined: true),
+            ],
+          ),
+          if (topics.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            if (difficulties.isNotEmpty) _DifficultyLegend(difficulties: difficulties, meta: meta),
+            for (final topic in topics)
+              _TopicRow(
+                label: meta.label(topic.key),
+                count: topic.value,
+                perDifficulty: package.topicDifficultyCounts[topic.key] ?? const {},
+                difficulties: difficulties,
               ),
-          ],
-        ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('Topic statistics not provided for this bank.', style: text.caption),
+            ),
+        ],
       ),
     );
   }
 }
 
+/// Difficulty levels step from light to dark so they differ in lightness,
+/// not only hue, and stay readable in greyscale.
 Color _difficultyColor(BuildContext context, int index, int count) {
-  final scheme = Theme.of(context).colorScheme;
-  final palette = [scheme.primary, scheme.tertiary, scheme.error, scheme.secondary];
-  return palette[index % palette.length].withValues(alpha: 0.85);
+  final k = context.kiln;
+  final t = count <= 1 ? 0.0 : index / (count - 1);
+  return Color.lerp(k.sky, k.ink, 0.1 + t * 0.6)!;
 }
 
 class _DifficultyLegend extends StatelessWidget {
@@ -540,7 +635,7 @@ class _DifficultyLegend extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Wrap(
-        spacing: 12,
+        spacing: 14,
         runSpacing: 4,
         children: [
           for (var i = 0; i < difficulties.length; i++)
@@ -555,8 +650,8 @@ class _DifficultyLegend extends StatelessWidget {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 4),
-                Text(meta.difficulty(difficulties[i]), style: Theme.of(context).textTheme.labelSmall),
+                const SizedBox(width: 6),
+                Text(meta.difficulty(difficulties[i]), style: context.kilnText.caption),
               ],
             ),
         ],
@@ -580,43 +675,47 @@ class _TopicRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final k = context.kiln;
+    final text = context.kilnText;
     final total = perDifficulty.values.fold<int>(0, (sum, value) => sum + value);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
+                child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: text.body),
               ),
               const SizedBox(width: 8),
-              Text('$count', style: theme.textTheme.labelLarge),
+              Text('$count', style: text.caption),
             ],
           ),
           if (total > 0) ...[
             const SizedBox(height: 4),
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(999),
               child: SizedBox(
                 height: 6,
-                child: Row(
-                  children: [
-                    for (var i = 0; i < difficulties.length; i++)
-                      if ((perDifficulty[difficulties[i]] ?? 0) > 0)
-                        Expanded(
-                          flex: perDifficulty[difficulties[i]]!,
-                          child: Tooltip(
-                            message: '${perDifficulty[difficulties[i]]} questions',
-                            child: ColoredBox(
-                            color: _difficultyColor(context, i, difficulties.length),
-                            child: const SizedBox.expand(),
+                child: ColoredBox(
+                  color: k.hairline,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < difficulties.length; i++)
+                        if ((perDifficulty[difficulties[i]] ?? 0) > 0)
+                          Expanded(
+                            flex: perDifficulty[difficulties[i]]!,
+                            child: Tooltip(
+                              message: '${perDifficulty[difficulties[i]]} questions',
+                              child: ColoredBox(
+                                color: _difficultyColor(context, i, difficulties.length),
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
                           ),
-                          ),
-                        ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
