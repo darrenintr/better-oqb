@@ -45,6 +45,10 @@ class OqbBrowserController {
   Future<void> refreshSnapshot() async {
     await _evaluate?.call('window.betterOqb?.snapshot();');
   }
+
+  Future<void> clearNetworkCapture() async {
+    await _evaluate?.call('window.betterOqbNetwork?.clear();');
+  }
 }
 
 class OqbBrowser extends StatefulWidget {
