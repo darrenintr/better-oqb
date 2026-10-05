@@ -70,6 +70,51 @@ class OqbPageState {
       question!.html.trim().isNotEmpty &&
       question!.options.isNotEmpty;
 
+  bool get isQuestionRoute {
+    final path = Uri.tryParse(url)?.path ?? '';
+    return RegExp(r'^/paper/\d+/do(?:/\d+)?/?    List<String> strings(dynamic value) => value is List
+        ? value.whereType<Object>().map((item) => item.toString()).toList()
+        : const <String>[];
+
+    final rawQuestion = json['question'];
+    return OqbPageState(
+      url: json['url']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      headings: strings(json['headings']),
+      actions: strings(json['actions']),
+      isLoggedIn: json['isLoggedIn'] is bool ? json['isLoggedIn'] as bool : null,
+      question: rawQuestion is Map
+          ? OqbQuestion.fromJson(Map<String, dynamic>.from(rawQuestion))
+          : null,
+    );
+  }
+}
+).hasMatch(path);
+  }
+
+  int get routeQuestionNumber {
+    final path = Uri.tryParse(url)?.path ?? '';
+    final match = RegExp(r'^/paper/\d+/do(?:/(\d+))?/?    List<String> strings(dynamic value) => value is List
+        ? value.whereType<Object>().map((item) => item.toString()).toList()
+        : const <String>[];
+
+    final rawQuestion = json['question'];
+    return OqbPageState(
+      url: json['url']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      headings: strings(json['headings']),
+      actions: strings(json['actions']),
+      isLoggedIn: json['isLoggedIn'] is bool ? json['isLoggedIn'] as bool : null,
+      question: rawQuestion is Map
+          ? OqbQuestion.fromJson(Map<String, dynamic>.from(rawQuestion))
+          : null,
+    );
+  }
+}
+).firstMatch(path);
+    return int.tryParse(match?.group(1) ?? '') ?? 0;
+  }
+
   factory OqbPageState.fromJson(Map<String, dynamic> json) {
     List<String> strings(dynamic value) => value is List
         ? value.whereType<Object>().map((item) => item.toString()).toList()
