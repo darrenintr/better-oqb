@@ -68,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (!mounted) return;
           setState(() {
             _page = state;
-            if (state.hasQuestion) {
+            if (state.hasQuestion || state.isQuestionRoute) {
               _showOriginal = false;
             }
           });
@@ -134,20 +134,83 @@ class _HomeScreenState extends State<HomeScreen> {
                         onOpenOriginal: () =>
                             setState(() => _showOriginal = true),
                       )
-                    : _apiState.hasCatalog
-                        ? _CatalogView(
-                            state: _apiState,
-                            onOpenOriginal: () =>
-                                setState(() => _showOriginal = true),
-                          )
-                        : _ConnectView(
+                    : _page.isQuestionRoute
+                        ? _QuestionLoadingView(
                             state: _page,
                             onOpenOriginal: () =>
                                 setState(() => _showOriginal = true),
-                          ),
+                          )
+                        : _apiState.hasCatalog
+                            ? _CatalogView(
+                                state: _apiState,
+                                onOpenOriginal: () =>
+                                    setState(() => _showOriginal = true),
+                              )
+                            : _ConnectView(
+                                state: _page,
+                                onOpenOriginal: () =>
+                                    setState(() => _showOriginal = true),
+                              ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _QuestionLoadingView extends StatelessWidget {
+  const _QuestionLoadingView({
+    required this.state,
+    required this.onOpenOriginal,
+  });
+
+  final OqbPageState state;
+  final VoidCallback onOpenOriginal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final questionNumber = state.routeQuestionNumber;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
+                  Text(
+                    questionNumber > 0
+                        ? 'Loading question $questionNumber'
+                        : 'Loading question',
+                    style: theme.textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Better OQB detected the OQB question route and is waiting '
+                    'for the question controls to finish rendering.',
+                    style: theme.textTheme.bodyLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: onOpenOriginal,
+                    icon: const Icon(Icons.open_in_browser),
+                    label: const Text('Original OQB page'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

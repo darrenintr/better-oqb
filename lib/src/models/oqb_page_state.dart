@@ -70,6 +70,17 @@ class OqbPageState {
       question!.html.trim().isNotEmpty &&
       question!.options.isNotEmpty;
 
+  bool get isQuestionRoute {
+    final path = Uri.tryParse(url)?.path ?? '';
+    return RegExp(r'^/paper/\d+/do(?:/\d+)?/?$').hasMatch(path);
+  }
+
+  int get routeQuestionNumber {
+    final path = Uri.tryParse(url)?.path ?? '';
+    final match = RegExp(r'^/paper/\d+/do(?:/(\d+))?/?$').firstMatch(path);
+    return int.tryParse(match?.group(1) ?? '') ?? 0;
+  }
+
   factory OqbPageState.fromJson(Map<String, dynamic> json) {
     List<String> strings(dynamic value) => value is List
         ? value.whereType<Object>().map((item) => item.toString()).toList()
