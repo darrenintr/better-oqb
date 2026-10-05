@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
+import '../models/oqb_api_data.dart';
 import '../models/oqb_network_event.dart';
 import '../models/oqb_page_state.dart';
 import '../services/oqb_bridge.dart';
@@ -18,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final OqbBrowserController _browserController = OqbBrowserController();
 
   OqbPageState _page = const OqbPageState();
+  OqbObservedApiState _apiState = const OqbObservedApiState();
   final List<OqbNetworkEvent> _networkEvents = <OqbNetworkEvent>[];
   bool _showOriginal = false;
 
@@ -28,6 +30,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_networkEvents.length > 500) {
         _networkEvents.removeRange(0, _networkEvents.length - 500);
       }
+    });
+  }
+
+  void _recordApiData(OqbApiDataEvent event) {
+    if (!mounted) return;
+    setState(() {
+      _apiState = _apiState.apply(event);
     });
   }
 
@@ -65,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         },
         onNetworkEvent: _recordNetworkEvent,
+        onApiData: _recordApiData,
       ),
     );
 
@@ -124,11 +134,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         onOpenOriginal: () =>
                             setState(() => _showOriginal = true),
                       )
-                    : _ConnectView(
-                        state: _page,
-                        onOpenOriginal: () =>
-                            setState(() => _showOriginal = true),
-                      ),
+                    : _apiState.hasCatalog
+                        ? _CatalogView(
+                            state: _apiState,
+                            onOpenOriginal: () =>
+                                setState(() => _showOriginal = true),
+                          )
+                        : _ConnectView(
+                            state: _page,
+                            onOpenOriginal: () =>
+                                setState(() => _showOriginal = true),
+                          ),
               ),
             ),
         ],
@@ -210,6 +226,231 @@ class _ConnectView extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _CatalogView extends StatelessWidget {
+  const _CatalogView({
+    required this.state,
+    required this.onOpenOriginal,
+  });
+
+  final OqbObservedApiState state;
+  final VoidCallback onOpenOriginal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final packages = state.packages;
+    final papers = state.availablePapers;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth >= 900 ? 40.0 : 16.0;
+
+        return SelectionArea(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              24,
+              horizontalPadding,
+              80,
+            ),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1100),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Your OQB question banks',
+                                  style: theme.textTheme.headlineSmall,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Loaded from the authenticated OQB session. '
+                                  'Better OQB does not store the OQB login token.',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          FilledButton.icon(
+                            onPressed: onOpenOriginal,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Create / choose paper'),
+                          ),
+                        ],
+                      ),
+                      if (papers.isNotEmpty) ...[
+                        const SizedBox(height: 28),
+                        Text(
+                          'Continue papers',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        for (final paper in papers) ...[
+                          Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.assignment_outlined),
+                              title: Text(paper.title),
+                              subtitle: Text(
+                                [
+                                  if (paper.subjectCode.isNotEmpty)
+                                    paper.subjectCode.toUpperCase(),
+                                  if (paper.numQuestions > 0)
+                                    '${paper.numQuestions} questions',
+                                  if (paper.modeReview.isNotEmpty)
+                                    paper.modeReview,
+                                ].join(' · '),
+                              ),
+                              trailing: const Icon(Icons.open_in_browser),
+                              onTap: onOpenOriginal,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ],
+                      const SizedBox(height: 28),
+                      Text(
+                        'Available banks',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          for (final package in packages)
+                            SizedBox(
+                              width: constraints.maxWidth >= 760
+                                  ? 340
+                                  : constraints.maxWidth,
+                              child: Card(
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: onOpenOriginal,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(18),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            CircleAvatar(
+                                              child: Text(
+                                                package.subjectCode.isEmpty
+                                                    ? '?'
+                                                    : package.subjectCode
+                                                        .substring(0, 1)
+                                                        .toUpperCase(),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    package.displayTitle,
+                                                    style: theme
+                                                        .textTheme.titleMedium,
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    [
+                                                      package.publisherCode,
+                                                      package.subjectCode
+                                                          .toUpperCase(),
+                                                    ]
+                                                        .where(
+                                                          (value) =>
+                                                              value.isNotEmpty,
+                                                        )
+                                                        .join(' · '),
+                                                    style:
+                                                        theme.textTheme.bodySmall,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 14),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            if (package.questionCount > 0)
+                                              Chip(
+                                                avatar: const Icon(
+                                                  Icons.quiz_outlined,
+                                                  size: 18,
+                                                ),
+                                                label: Text(
+                                                  '${package.questionCount} indexed items',
+                                                ),
+                                              ),
+                                            if (package.topicCounts.isNotEmpty)
+                                              Chip(
+                                                avatar: const Icon(
+                                                  Icons.topic_outlined,
+                                                  size: 18,
+                                                ),
+                                                label: Text(
+                                                  '${package.topicCounts.length} topics',
+                                                ),
+                                              ),
+                                            for (final access
+                                                in package.accessType.take(2))
+                                              Chip(label: Text(access)),
+                                          ],
+                                        ),
+                                        if (package.topicCounts.isNotEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            package.topicCounts.entries
+                                                .take(6)
+                                                .map(
+                                                  (entry) =>
+                                                      '${entry.key}: ${entry.value}',
+                                                )
+                                                .join('   '),
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
