@@ -70,6 +70,7 @@ class OqbBrowser extends StatefulWidget {
 class _OqbBrowserState extends State<OqbBrowser> {
   String? _bridgeScript;
   String? _networkProbeScript;
+  String? _dataBridgeScript;
   cef.WebViewController? _desktopController;
   bool _desktopReady = false;
   String? _mobileLoadError;
@@ -87,28 +88,38 @@ class _OqbBrowserState extends State<OqbBrowser> {
     final scripts = await Future.wait([
       rootBundle.loadString('assets/oqb_bridge.js'),
       rootBundle.loadString('assets/oqb_network_probe.js'),
+      rootBundle.loadString('assets/oqb_data_bridge.js'),
     ]);
     if (!mounted) return;
     final bridgeScript = scripts[0];
     final networkProbeScript = scripts[1];
+    final dataBridgeScript = scripts[2];
     setState(() {
       _bridgeScript = bridgeScript;
       _networkProbeScript = networkProbeScript;
+      _dataBridgeScript = dataBridgeScript;
     });
     if (_useCef) {
-      await _initDesktop(bridgeScript, networkProbeScript);
+      await _initDesktop(bridgeScript, networkProbeScript, dataBridgeScript);
     }
   }
 
   Future<void> _initDesktop(
     String bridgeScript,
     String networkProbeScript,
+    String dataBridgeScript,
   ) async {
     await cef.WebviewManager().initialize(userAgent: 'BetterOQB/0.1');
     final injected = cef.InjectUserScripts()
       ..add(
         cef.UserScript(
           networkProbeScript,
+          cef.ScriptInjectTime.LOAD_START,
+        ),
+      )
+      ..add(
+        cef.UserScript(
+          dataBridgeScript,
           cef.ScriptInjectTime.LOAD_START,
         ),
       )
@@ -141,6 +152,18 @@ class _OqbBrowserState extends State<OqbBrowser> {
         name: 'BetterOqbNetwork',
         onMessageReceived: (message) {
           widget.bridge.handleNetworkEvent(message.message);
+          controller.sendJavaScriptChannelCallBack(
+            false,
+            '{"ok":true}',
+            message.callbackId,
+            message.frameId,
+          );
+        },
+      ),
+      cef.JavascriptChannel(
+        name: 'BetterOqbData',
+        onMessageReceived: (message) {
+          widget.bridge.handleApiData(message.message);
           controller.sendJavaScriptChannelCallBack(
             false,
             '{"ok":true}',
@@ -189,7 +212,9 @@ class _OqbBrowserState extends State<OqbBrowser> {
 
   @override
   Widget build(BuildContext context) {
-    if (_bridgeScript == null || _networkProbeScript == null) {
+    if (_bridgeScript == null ||
+        _networkProbeScript == null ||
+        _dataBridgeScript == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -212,6 +237,10 @@ class _OqbBrowserState extends State<OqbBrowser> {
           initialUserScripts: UnmodifiableListView<UserScript>([
             UserScript(
               source: _networkProbeScript!,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            ),
+            UserScript(
+              source: _dataBridgeScript!,
               injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
             ),
           ]),
@@ -240,6 +269,15 @@ class _OqbBrowserState extends State<OqbBrowser> {
               callback: (arguments) {
                 if (arguments.isNotEmpty) {
                   widget.bridge.handleNetworkEvent(arguments.first);
+                }
+                return {'ok': true};
+              },
+            );
+            controller.addJavaScriptHandler(
+              handlerName: 'betterOqbApiData',
+              callback: (arguments) {
+                if (arguments.isNotEmpty) {
+                  widget.bridge.handleApiData(arguments.first);
                 }
                 return {'ok': true};
               },
