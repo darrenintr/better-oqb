@@ -37,6 +37,9 @@ https://oqb.edcity.hk/api/...
   `save_trial` using the trial-question id, with a visible
   saved / unsaved / saving / not-saved state, automatic retry and manual retry.
   Answers are never discarded until OQB accepts them.
+- **Exercise papers** have a "Show answer" button, like OQB's own Show:
+  it checks the question (`status=submitted`), marks the correct choice and
+  locks that answer. Test papers do not have it.
 - **Submitting** is only possible from a confirmation dialog. It first saves
   any pending answers and refuses to submit if they cannot be saved.
 - **Review** uses `start_trial(opts[review]=1)` and a detailed `load_paper`

@@ -230,6 +230,7 @@ class OqbTrialQuestion {
     this.timeSpent = 0,
     this.userInput = OqbUserInput.empty,
     this.question,
+    this.suggestedAnswer,
     this.isCorrect,
     this.score,
   });
@@ -244,6 +245,10 @@ class OqbTrialQuestion {
   final int timeSpent;
   final OqbUserInput userInput;
   final OqbQuestionContent? question;
+
+  /// Answer key on the trial question itself, as exercise papers return it
+  /// from save_trial. Null when OQB did not send one.
+  final OqbUserInput? suggestedAnswer;
 
   /// Review mode only.
   final bool? isCorrect;
@@ -262,6 +267,7 @@ class OqbTrialQuestion {
       timeSpent: timeSpent ?? this.timeSpent,
       userInput: userInput ?? this.userInput,
       question: question,
+      suggestedAnswer: suggestedAnswer,
       isCorrect: isCorrect,
       score: score,
     );
@@ -273,6 +279,7 @@ class OqbTrialQuestion {
         ? OqbQuestionContent.fromJson(asMap(rawQuestion))
         : null;
     final status = json['status'];
+    final suggested = OqbUserInput.parse(json['suggested_answer']);
     return OqbTrialQuestion(
       id: asInt(json['id']),
       seq: asInt(json['seq']),
@@ -281,6 +288,7 @@ class OqbTrialQuestion {
       timeSpent: asInt(json['time_spent']),
       userInput: OqbUserInput.parse(json['user_input']),
       question: question,
+      suggestedAnswer: suggested.isEmpty ? null : suggested,
       isCorrect: json.containsKey('is_correct') ? asBool(json['is_correct']) : null,
       score: asNum(json['score']),
     );

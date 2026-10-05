@@ -129,8 +129,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('.png', findRichText: true), findsNothing);
+    expect(find.text('Show answer'), findsNothing, reason: 'test paper');
     expect(find.text('A'), findsOneWidget);
     expect(find.text('This question has no text content.'), findsNothing);
+  });
+
+  testWidgets('exercise papers can show the answer', (tester) async {
+    await setSize(tester, const Size(1180, 820));
+    transport.handler = (request) => exerciseSaveResult(count: 2);
+    final controller = StudyController(OqbRepository(transport), saveDelay: Duration.zero)
+      ..attach(OqbTrialSession.fromResult(startTrialResult(count: 2, modeReview: 'exercise')));
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(host(StudyView(
+      controller: controller,
+      meta: OqbMeta.empty,
+      onExit: () {},
+      onOpenOriginal: () {},
+      onSubmit: () async {},
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('A0', findRichText: true));
+    await tester.tap(find.text('Show answer'));
+    await tester.pumpAndSettle();
+
+    expect(transport.commands('saveTrial').last.fields['trial_question[0][status]'], 'submitted');
+    expect(find.text('Incorrect'), findsOneWidget);
+    expect(find.text('Show answer'), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('Choice C.*correct answer')), findsOneWidget);
   });
 
   testWidgets('submit requires confirmation', (tester) async {

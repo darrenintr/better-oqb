@@ -8,10 +8,17 @@ import 'oqb_api_requests.dart';
 
 /// Result of a save_trial call that OQB accepted.
 class OqbSaveResult {
-  const OqbSaveResult({this.statuses = const <int, String>{}});
+  const OqbSaveResult({
+    this.statuses = const <int, String>{},
+    this.answerKey = const <int, OqbUserInput>{},
+  });
 
   /// trial_question.id → status, when OQB echoed the updated questions.
   final Map<int, String> statuses;
+
+  /// trial_question.id → suggested answer. Exercise papers echo the answer
+  /// key for the trial's questions; test papers are not known to.
+  final Map<int, OqbUserInput> answerKey;
 }
 
 /// Typed access to the OQB API through the authenticated WebView. This is
@@ -73,7 +80,8 @@ class OqbRepository {
       trialTimeSpent: trialTimeSpent,
       latestAccessQuestionNo: latestAccessQuestionNo,
     ));
-    return OqbSaveResult(statuses: _statuses(response.result));
+    final rows = _trialQuestionRows(response.result);
+    return OqbSaveResult(statuses: _statuses(rows), answerKey: _answerKey(rows));
   }
 
   /// Submits the attempt. Only call from a confirmed user action.
@@ -109,13 +117,16 @@ class OqbRepository {
     return OqbReview(session: session, detail: detail, summary: summary);
   }
 
-  /// save_trial's response shape is only known to update statuses to
-  /// `attempted`; read them if present and ignore anything else.
-  static Map<int, String> _statuses(dynamic result) {
+  static List<Map<String, dynamic>> _trialQuestionRows(dynamic result) {
     final map = asMap(result);
-    final rows = map.containsKey('trial_question')
+    return map.containsKey('trial_question')
         ? asMapList(map['trial_question'])
         : asMapList(result);
+  }
+
+  /// save_trial's response shape is only known to update statuses to
+  /// `attempted`; read them if present and ignore anything else.
+  static Map<int, String> _statuses(List<Map<String, dynamic>> rows) {
     final statuses = <int, String>{};
     for (final row in rows) {
       final id = asInt(row['id']);
@@ -123,5 +134,15 @@ class OqbRepository {
       if (id > 0 && status.isNotEmpty && status != 'null') statuses[id] = status;
     }
     return statuses;
+  }
+
+  static Map<int, OqbUserInput> _answerKey(List<Map<String, dynamic>> rows) {
+    final key = <int, OqbUserInput>{};
+    for (final row in rows) {
+      final id = asInt(row['id']);
+      final answer = OqbUserInput.parse(row['suggested_answer']);
+      if (id > 0 && answer.choices.isNotEmpty) key[id] = answer;
+    }
+    return key;
   }
 }

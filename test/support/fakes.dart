@@ -48,13 +48,14 @@ Map<String, dynamic> startTrialResult({
   Map<String, dynamic>? state,
   bool review = false,
   List<dynamic>? userInputs,
+  String modeReview = 'test',
 }) {
   return {
     'paper': {
       'id': paperId,
       'subject_code': 'econ',
       'title': 'Market intervention',
-      'mode_review': 'test',
+      'mode_review': modeReview,
       'time_allowed': 120,
       'num_of_questions': count,
     },
@@ -102,4 +103,25 @@ Map<String, dynamic> startTrialResult({
         },
     ],
   };
+}
+
+/// save_trial result as observed on exercise papers: every trial question is
+/// echoed with its answer key. Suggested answers are choice C (`[2]`).
+Map<String, dynamic> exerciseSaveResult({int count = 3, Map<int, String> statuses = const {}}) {
+  return envelope({
+    'trial_question': [
+      for (var i = 0; i < count; i++)
+        {
+          'id': '${9000 + i}',
+          'user_input': null,
+          'time_spent': '0',
+          'status': statuses[9000 + i] ?? '',
+          'question_id': 500 + i,
+          'trial_id': 77,
+          'suggested_answer': '[2]',
+          'suggested_score': 1,
+          'itype': 'choice',
+        },
+    ],
+  });
 }

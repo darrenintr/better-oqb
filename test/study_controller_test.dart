@@ -256,6 +256,76 @@ void main() {
     });
   });
 
+  group('exercise answers', () {
+    setUp(() {
+      transport.handler = (request) {
+        switch (request.command) {
+          case 'startTrial':
+            return envelope(startTrialResult(count: 3, modeReview: 'exercise'));
+          case 'saveTrial':
+            return exerciseSaveResult();
+        }
+        return envelope(null);
+      };
+    });
+
+    test('show answer checks the question like OQB and reveals the key', () async {
+      await controller.open(1);
+      final question = controller.current!;
+      expect(controller.isExercise, isTrue);
+      expect(controller.canShowAnswer(question), isTrue);
+
+      controller.selectChoice(0);
+      controller.showAnswer();
+      expect(controller.isChecked(question), isTrue);
+      await settle();
+
+      final save = transport.commands('saveTrial').single;
+      expect(save.fields['trial_question[0][id]'], '9000');
+      expect(save.fields['trial_question[0][user_input]'], '[0]');
+      expect(save.fields['trial_question[0][status]'], 'submitted');
+      expect(controller.answerKeyFor(question)!.choices, [2]);
+      expect(controller.isAnswerShown(question), isTrue);
+      expect(controller.canShowAnswer(question), isFalse);
+      expect(transport.commands('submitTrial'), isEmpty);
+    });
+
+    test('a checked answer is locked', () async {
+      await controller.open(1);
+      final question = controller.current!;
+      controller.selectChoice(1);
+      controller.showAnswer();
+      await settle();
+
+      controller.selectChoice(3);
+      expect(controller.answerFor(question).single, 1);
+      await settle();
+      expect(transport.commands('saveTrial'), hasLength(1));
+    });
+
+    test('ordinary saves pick up the key without revealing it', () async {
+      await controller.open(1);
+      controller.selectChoice(1);
+      await settle();
+      final second = controller.session!.questions[1];
+      expect(controller.answerKeyFor(second)!.choices, [2]);
+      expect(controller.isAnswerShown(second), isFalse);
+      expect(controller.isAnswerShown(controller.current!), isFalse);
+    });
+
+    test('test papers have no show answer', () async {
+      transport.handler = (request) => request.command == 'startTrial'
+          ? envelope(startTrialResult(count: 3))
+          : exerciseSaveResult();
+      await controller.open(1);
+      expect(controller.isExercise, isFalse);
+      expect(controller.canShowAnswer(controller.current!), isFalse);
+      controller.showAnswer();
+      await settle();
+      expect(transport.commands('saveTrial'), isEmpty);
+    });
+  });
+
   group('submission', () {
     test('is never automatic', () async {
       await controller.open(1);

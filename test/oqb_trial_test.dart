@@ -116,6 +116,12 @@ void main() {
     });
   });
 
+  test('reads an answer key on the trial question when OQB sends one', () {
+    final question = OqbTrialQuestion.fromJson({'id': '1', 'suggested_answer': '[1]'});
+    expect(question.suggestedAnswer!.choices, [1]);
+    expect(OqbTrialQuestion.fromJson({'id': 1}).suggestedAnswer, isNull);
+  });
+
   group('user input', () {
     test('parses observed and defensive encodings', () {
       expect(OqbUserInput.parse('[0]').choices, [0]);

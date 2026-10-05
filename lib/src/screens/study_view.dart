@@ -851,8 +851,9 @@ class _AnswerSection extends StatelessWidget {
     final theme = Theme.of(context);
     final content = question.question;
     final answer = controller.answerFor(question);
-    final suggested = content?.suggestedAnswer;
     final review = controller.isReadOnly;
+    final shown = !review && controller.isAnswerShown(question);
+    final key = review ? content?.suggestedAnswer : (shown ? controller.answerKeyFor(question) : null);
 
     if (content == null || !content.isMultipleChoice) {
       return Card(
@@ -882,14 +883,76 @@ class _AnswerSection extends StatelessWidget {
           _AnswerCard(
             choice: choice,
             selected: answer.choices.contains(choice.index),
-            correct: review && suggested != null ? suggested.choices.contains(choice.index) : null,
-            enabled: !review && !controller.isSubmitting,
+            correct: key?.choices.contains(choice.index),
+            enabled: !review && !controller.isSubmitting && !controller.isChecked(question),
             onTap: () => controller.selectChoice(choice.index),
           ),
           const SizedBox(height: 10),
         ],
+        if (shown)
+          _verdict(
+            context,
+            answer.isEmpty ? 'Not answered' : (answer.sameAs(key!) ? 'Correct' : 'Incorrect'),
+            answer.isNotEmpty && answer.sameAs(key!),
+          ),
+        if (controller.canShowAnswer(question)) _showAnswerButton(context),
         if (review) ..._reviewExtras(context, content),
       ],
+    );
+  }
+
+  Widget _verdict(BuildContext context, String label, bool correct, {num? score}) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            correct ? Icons.check_circle : Icons.cancel,
+            color: correct ? Colors.green.shade700 : theme.colorScheme.error,
+          ),
+          const SizedBox(width: 8),
+          Text(label, style: theme.textTheme.titleMedium),
+          if (score != null) ...[
+            const Spacer(),
+            Text('Score ${_fmt(score)}'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _showAnswerButton(BuildContext context) {
+    final checking = controller.isChecked(question);
+    final failed = checking && controller.saveStateFor(question) == OqbSaveState.failed;
+    final busy = checking && !failed && controller.saveStateFor(question) != OqbSaveState.saved;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Wrap(
+          spacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: busy ? null : controller.showAnswer,
+              icon: busy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.visibility_outlined),
+              label: Text(busy ? 'Checking…' : 'Show answer'),
+            ),
+            // Checked and saved, but OQB sent no answer key for it.
+            if (checking && !busy && !failed)
+              Text(
+                'OQB has not sent this answer yet.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -898,27 +961,11 @@ class _AnswerSection extends StatelessWidget {
     final widgets = <Widget>[];
     final verdict = question.isCorrect;
     if (verdict != null) {
-      widgets.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Icon(
-              verdict ? Icons.check_circle : Icons.cancel,
-              color: verdict ? Colors.green.shade700 : theme.colorScheme.error,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              controller.isAnswered(question)
-                  ? (verdict ? 'Correct' : 'Incorrect')
-                  : 'Not answered',
-              style: theme.textTheme.titleMedium,
-            ),
-            if (question.score != null) ...[
-              const Spacer(),
-              Text('Score ${_fmt(question.score!)}'),
-            ],
-          ],
-        ),
+      widgets.add(_verdict(
+        context,
+        controller.isAnswered(question) ? (verdict ? 'Correct' : 'Incorrect') : 'Not answered',
+        verdict,
+        score: question.score,
       ));
     }
     for (final (title, html) in [

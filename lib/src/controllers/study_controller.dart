@@ -47,6 +47,7 @@ class StudyController extends ChangeNotifier {
   final Map<int, int> _inFlight = <int, int>{};
   final Map<int, int> _timeSpent = <int, int>{};
   final Map<int, String?> _status = <int, String?>{};
+  final Map<int, OqbUserInput> _answerKey = <int, OqbUserInput>{};
   final Set<int> _failed = <int>{};
 
   Future<void>? _currentSave;
@@ -92,6 +93,38 @@ class StudyController extends ChangeNotifier {
       _answers[question.id] ?? question.userInput;
 
   bool isAnswered(OqbTrialQuestion question) => answerFor(question).isNotEmpty;
+
+  /// OQB's trial-question status for an answer that was checked in an
+  /// exercise ("Show" in the original page).
+  static const String checkedStatus = 'submitted';
+
+  /// Exercise papers let the learner check each answer before submitting.
+  /// Only `test` has been observed for tests, so anything else is treated
+  /// as an exercise; OQB still decides whether it returns an answer key.
+  bool get isExercise {
+    final session = _session;
+    return session != null &&
+        !session.isReview &&
+        session.paper.modeReview.toLowerCase() != 'test';
+  }
+
+  /// Suggested answer OQB sent for [question] during this attempt, if any.
+  OqbUserInput? answerKeyFor(OqbTrialQuestion question) => _answerKey[question.id];
+
+  /// Whether [question] was checked; OQB then treats its answer as final.
+  bool isChecked(OqbTrialQuestion question) =>
+      _status[question.id] == checkedStatus;
+
+  /// Whether the answer of a checked question can be shown now.
+  bool isAnswerShown(OqbTrialQuestion question) =>
+      isChecked(question) && answerKeyFor(question) != null;
+
+  bool canShowAnswer(OqbTrialQuestion question) =>
+      isExercise &&
+      !isReadOnly &&
+      !_submitting &&
+      (question.question?.isMultipleChoice ?? false) &&
+      !isAnswerShown(question);
 
   int get answeredCount =>
       _session?.questions.where(isAnswered).length ?? 0;
@@ -173,10 +206,13 @@ class StudyController extends ChangeNotifier {
     _failed.clear();
     _timeSpent.clear();
     _status.clear();
+    _answerKey.clear();
     for (final question in session.questions) {
       _answers[question.id] = question.userInput;
       _timeSpent[question.id] = question.timeSpent;
       _status[question.id] = question.status;
+      final key = question.suggestedAnswer;
+      if (key != null) _answerKey[question.id] = key;
     }
     _baseTrialSeconds = session.trial.timeSpent;
     _openedAt = _clock();
@@ -217,6 +253,7 @@ class StudyController extends ChangeNotifier {
     _savedVersion.clear();
     _inFlight.clear();
     _failed.clear();
+    _answerKey.clear();
     _notify();
   }
 
@@ -259,7 +296,7 @@ class StudyController extends ChangeNotifier {
   /// updates immediately; the save follows after [saveDelay].
   void selectChoice(int choiceIndex) {
     final question = current;
-    if (question == null || isReadOnly || _submitting) return;
+    if (question == null || isReadOnly || _submitting || isChecked(question)) return;
     final content = question.question;
     if (content == null || !content.isMultipleChoice) return;
     if (choiceIndex < 0 || choiceIndex >= content.choices.length) return;
@@ -270,6 +307,20 @@ class StudyController extends ChangeNotifier {
     _version[question.id] = (_version[question.id] ?? 0) + 1;
     _failed.remove(question.id);
     _scheduleSave(saveDelay);
+    _notify();
+  }
+
+  /// Checks the current question the way OQB's "Show" button does: its
+  /// status becomes [checkedStatus] and is saved straight away. OQB answers
+  /// with the answer key, after which the answer is locked and shown.
+  void showAnswer() {
+    final question = current;
+    if (question == null || !canShowAnswer(question)) return;
+    _status[question.id] = checkedStatus;
+    _version[question.id] = (_version[question.id] ?? 0) + 1;
+    _failed.remove(question.id);
+    _saveTimer?.cancel();
+    _startSave();
     _notify();
   }
 
@@ -330,6 +381,7 @@ class StudyController extends ChangeNotifier {
         _failed.remove(id);
       });
       _status.addAll(result.statuses);
+      _answerKey.addAll(result.answerKey);
       _saveError = null;
       _retryAttempt = 0;
       _lastSavedAt = _clock();
