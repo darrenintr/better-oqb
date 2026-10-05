@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,14 +8,54 @@ import 'package:webview_cef/webview_cef.dart' as cef;
 
 import '../services/oqb_bridge.dart';
 
+class OqbBrowserController {
+  Future<dynamic> Function(String source)? _evaluate;
+
+  void _attach(Future<dynamic> Function(String source) evaluator) {
+    _evaluate = evaluator;
+  }
+
+  void _detach() {
+    _evaluate = null;
+  }
+
+  Future<void> answer(String key) async {
+    await _evaluate?.call(
+      'window.betterOqb?.answer(${jsonEncode(key)});',
+    );
+  }
+
+  Future<void> previous() async {
+    await _evaluate?.call('window.betterOqb?.previous();');
+  }
+
+  Future<void> next() async {
+    await _evaluate?.call('window.betterOqb?.next();');
+  }
+
+  Future<void> submit() async {
+    await _evaluate?.call('window.betterOqb?.submit();');
+  }
+
+  Future<void> back() async {
+    await _evaluate?.call('window.betterOqb?.back();');
+  }
+
+  Future<void> refreshSnapshot() async {
+    await _evaluate?.call('window.betterOqb?.snapshot();');
+  }
+}
+
 class OqbBrowser extends StatefulWidget {
   const OqbBrowser({
     super.key,
     required this.bridge,
+    required this.controller,
     this.initialUrl = 'https://oqb.edcity.hk',
   });
 
   final OqbBridge bridge;
+  final OqbBrowserController controller;
   final String initialUrl;
 
   @override
@@ -77,6 +118,9 @@ class _OqbBrowserState extends State<OqbBrowser> {
     );
 
     await controller.initialize(widget.initialUrl);
+    widget.controller._attach(
+      (source) => controller.executeJavaScript(source),
+    );
     if (!mounted) {
       controller.dispose();
       return;
@@ -90,6 +134,7 @@ class _OqbBrowserState extends State<OqbBrowser> {
 
   @override
   void dispose() {
+    widget.controller._detach();
     _desktopController?.dispose();
     if (_useCef) {
       cef.WebviewManager().quit();
@@ -127,6 +172,9 @@ class _OqbBrowserState extends State<OqbBrowser> {
             sharedCookiesEnabled: true,
           ),
           onWebViewCreated: (controller) {
+            widget.controller._attach(
+              (source) => controller.evaluateJavascript(source: source),
+            );
             controller.addJavaScriptHandler(
               handlerName: 'betterOqbPageState',
               callback: (arguments) {
