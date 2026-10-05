@@ -131,15 +131,21 @@
       };
     });
 
+    const markers = optionNodes.map((original, index) => {
+      const marker = `boqb-option-${index}`;
+      original.setAttribute('data-better-oqb-option-marker', marker);
+      return marker;
+    });
+
     const rootClone = root.cloneNode(true);
     rootClone.querySelectorAll('script,style,noscript,button,input,select,textarea').forEach((e) => e.remove());
 
+    markers.forEach((marker) => {
+      rootClone
+        .querySelector(`[data-better-oqb-option-marker="${marker}"]`)
+        ?.remove();
+    });
     optionNodes.forEach((original) => {
-      const marker = original.getAttribute('data-better-oqb-option-marker') ||
-        `boqb-${Math.random().toString(36).slice(2)}`;
-      original.setAttribute('data-better-oqb-option-marker', marker);
-      const found = rootClone.querySelector(`[data-better-oqb-option-marker="${marker}"]`);
-      found?.remove();
       original.removeAttribute('data-better-oqb-option-marker');
     });
 
