@@ -205,6 +205,7 @@ class _StudyViewState extends State<StudyView> {
                       controller: _controller,
                       review: widget.review,
                       compact: compact,
+                      wide: showPanel,
                       onExit: widget.onExit,
                       onSubmit: widget.onSubmit == null ? null : _confirmSubmit,
                       onOpenOriginal: widget.onOpenOriginal,
@@ -255,6 +256,7 @@ class _StudyHeader extends StatelessWidget {
     required this.controller,
     required this.review,
     required this.compact,
+    required this.wide,
     required this.onExit,
     required this.onSubmit,
     required this.onOpenOriginal,
@@ -264,6 +266,10 @@ class _StudyHeader extends StatelessWidget {
   final StudyController controller;
   final OqbReview? review;
   final bool compact;
+
+  /// Wide layouts show the Original OQB link in the header instead of the
+  /// ⋮ menu.
+  final bool wide;
   final VoidCallback onExit;
   final VoidCallback? onSubmit;
   final VoidCallback onOpenOriginal;
@@ -322,6 +328,14 @@ class _StudyHeader extends StatelessWidget {
                   KilnPill(icon: Icons.fact_check_outlined, label: 'Review', background: k.oat, showLabel: !compact),
                 if (controller.isSubmitted && review == null)
                   KilnPill(icon: Icons.check_circle_outline, label: 'Submitted', background: k.oat, showLabel: !compact),
+                if (wide) ...[
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: onOpenOriginal,
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Original OQB'),
+                  ),
+                ],
                 if (onSubmit != null && !controller.isReadOnly) ...[
                   const SizedBox(width: 8),
                   controller.isSubmitting
@@ -340,27 +354,29 @@ class _StudyHeader extends StatelessWidget {
                           child: const Text('Submit'),
                         ),
                 ],
-                PopupMenuButton<VoidCallback>(
-                  tooltip: 'More',
-                  onSelected: (action) => action(),
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: onOpenOriginal,
-                      child: const ListTile(
-                        leading: Icon(Icons.open_in_new),
-                        title: Text('Original OQB page'),
-                      ),
-                    ),
-                    if (onOpenInspector != null)
-                      PopupMenuItem(
-                        value: onOpenInspector!,
-                        child: const ListTile(
-                          leading: Icon(Icons.monitor_heart_outlined),
-                          title: Text('API inspector'),
+                if (!wide || onOpenInspector != null)
+                  PopupMenuButton<VoidCallback>(
+                    tooltip: 'More',
+                    onSelected: (action) => action(),
+                    itemBuilder: (context) => [
+                      if (!wide)
+                        PopupMenuItem(
+                          value: onOpenOriginal,
+                          child: const ListTile(
+                            leading: Icon(Icons.open_in_new),
+                            title: Text('Original OQB page'),
+                          ),
                         ),
-                      ),
-                  ],
-                ),
+                      if (onOpenInspector != null)
+                        PopupMenuItem(
+                          value: onOpenInspector!,
+                          child: const ListTile(
+                            leading: Icon(Icons.monitor_heart_outlined),
+                            title: Text('API inspector'),
+                          ),
+                        ),
+                    ],
+                  ),
               ],
             ),
           ),
