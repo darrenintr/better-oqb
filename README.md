@@ -1,51 +1,104 @@
 # Better OQB
 
-Better OQB is a Flutter study client that keeps the real `oqb.edcity.hk`
-website as the authenticated backend while presenting it in a cleaner,
-responsive interface for phones, tablets, and desktops.
+Better OQB is a Flutter study client for the Hong Kong Education City Online
+Question Bank (`oqb.edcity.hk`). The real OQB website runs inside an embedded
+browser and stays responsible for login, permissions and authentication;
+Better OQB uses OQB's JSON API from that same authenticated page and renders
+a responsive study interface for phones, tablets and desktops.
 
-## Current prototype
+It does not bypass permissions, mirror the question database, or store your
+OQB password, token or trial session keys.
 
-- Opens the real OQB site; login and entitlement remain handled by OQB.
-- Uses `flutter_inappwebview` on Android, iOS/iPadOS, macOS, and Windows.
-- Uses CEF Chromium through `webview_cef` on Linux.
-- Injects a small JavaScript adapter after page load.
-- Sends page headings/actions back to Flutter through a JS bridge.
-- Includes a temporary inspector so the real OQB DOM can be mapped before the
-  optimized question renderer is implemented.
-- Does not store passwords or mirror the OQB question database.
+## How it works
+
+```text
+Flutter UI (CatalogView, StudyView, review)
+        │
+StudyController / CatalogController      lib/src/controllers/
+        │
+OqbRepository + typed models             lib/src/services/, lib/src/models/
+        │
+OqbRequests → OqbWebViewApiClient        endpoint layouts, request ids, timeouts
+        │
+window.betterOqbApi (assets/oqb_api_client.js)
+        │  same-origin fetch, token + sesskey stay in this closure
+https://oqb.edcity.hk/api/...
+```
+
+- **Login** happens on the real OQB page. If you are not signed in, Better OQB
+  shows the original page automatically and switches back once OQB has an
+  authenticated session.
+- **Home** is built from `get_usable_packages` (banks the account can use,
+  with topic/difficulty counts), `load_papers` (papers to start/resume, preset
+  papers), `load_submitted_papers` and `/public/meta.json` labels.
+- **Studying** calls `start_trial` and renders each `trial_question` directly
+  from API data (HTML, tables and images preserved). Navigation, jumping and
+  answer selection are local and immediate; answers are saved with
+  `save_trial` using the trial-question id, with a visible
+  saved / unsaved / saving / not-saved state, automatic retry and manual retry.
+  Answers are never discarded until OQB accepts them.
+- **Submitting** is only possible from a confirmation dialog. It first saves
+  any pending answers and refuses to submit if they cannot be saved.
+- **Review** uses `start_trial(opts[review]=1)` and a detailed `load_paper`
+  to show score, per-question correctness, suggested/model answers and
+  topic/difficulty breakdowns.
+- **Original OQB** is always one tap away (app bar or the study ⋮ menu). During
+  an attempt it opens at the same question. If you open a paper in the
+  original page, Better OQB picks up its `/paper/{id}/do/{n}` route and opens
+  the same attempt at the same question through the API.
+- **Compatibility fallback**: if the API cannot load a paper that OQB is
+  showing, the older DOM-scraped question view (`assets/oqb_bridge.js`) is
+  shown with a "compatibility mode" banner.
+
+The observed API is documented in [`docs/OQB_API_MAP.md`](docs/OQB_API_MAP.md),
+including which request/response details are still assumptions.
+
+### Layouts
+
+- Phone: single column, bottom Previous / question grid / Next bar, submit in
+  the header.
+- Tablet (≥1000 px wide): permanent question navigator panel with
+  filters (to do / done / pending or wrong).
+- Wide desktop: question and answers side by side so the answers stay visible
+  next to long questions and diagrams.
+- Images can be tapped to zoom. Keyboard: ←/→ to navigate, A–H or 1–8 to answer.
+
+### Privacy and security
+
+- The OQB token is learned inside the page from OQB's own requests and never
+  leaves it; Flutter only learns whether a token is available.
+- Trial sesskeys are captured from `start_trial` inside the page and never
+  leave it.
+- Requests are only made to same-origin `/api/` paths on `oqb.edcity.hk`, from
+  an allow-list of commands.
+- Payloads passed to Flutter have tokens, sesskeys and personal identifiers
+  removed. Signed asset URLs are used for rendering only and kept in memory.
+- The API inspector (heart-monitor icon) shows redacted traffic and a
+  non-sensitive client log (commands, outcomes and payload shapes).
+
+## Platforms
+
+- `flutter_inappwebview` on Android, iOS/iPadOS, macOS and Windows.
+- CEF Chromium through `webview_cef` on Linux.
 
 ## Bootstrap
 
-This branch contains the application source first. Generate Flutter's native
-runner projects on a machine with Flutter installed:
+Generate Flutter's native runner projects on a machine with Flutter installed:
 
 ```bash
 flutter create --platforms=android,ios,linux,macos,windows .
 flutter pub get
+flutter run -d linux   # or an attached iPad/Android device (flutter devices)
 ```
 
-Then run the platform you want, for example:
+## Development
 
 ```bash
-flutter run -d linux
+flutter analyze
+flutter test
 ```
 
-or select an attached iPad/Android device with `flutter devices`.
-
-## Architecture
-
-```text
-Flutter responsive UI
-        |
-        +-- OQB bridge/model
-        |
-Embedded real OQB browser
-        |
-https://oqb.edcity.hk
-```
-
-The next stage is to log in normally, navigate through a question set, and use
-the inspector output to map stable selectors for subjects, question text,
-answers, diagrams, navigation, and result state. Those mappings will stay in
-the adapter layer rather than being spread throughout the Flutter UI.
+Tests cover request layouts (including MC answer serialization and the
+trial-question vs question id distinction), `start_trial`/review parsing,
+malformed payloads, the WebView client protocol, save state and retry,
+submission rules, route detection, and phone/tablet/desktop layouts.

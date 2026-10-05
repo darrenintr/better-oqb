@@ -90,7 +90,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onApiStatus() {
     final status = _api.status.value;
     if (!status.isReady) return;
-    if (!_catalog.hasLoaded && !_catalog.isLoading) _catalog.refresh();
+    final retryCatalog = _catalog.hasLoaded && !_catalog.hasCatalog && _catalog.error != null;
+    if ((!_catalog.hasLoaded || retryCatalog) && !_catalog.isLoading) _catalog.refresh();
     if (_autoShownForLogin && mounted) {
       setState(() {
         _autoShownForLogin = false;

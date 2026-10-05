@@ -84,7 +84,7 @@
   let lastStatusKey = '';
   function reportStatus(force) {
     const current = status();
-    const key = [current.onOqb, current.path, current.hasToken].join('|');
+    const key = [current.onOqb, current.path, current.hasToken, current.tokenSource].join('|');
     if (!force && key === lastStatusKey) return;
     lastStatusKey = key;
     post(current);
