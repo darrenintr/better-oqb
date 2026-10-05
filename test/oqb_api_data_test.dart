@@ -84,6 +84,60 @@ void main() {
     expect(afterPreset.presetPapersBySubject['econ']!.single.isTeacher, isTrue);
   });
 
+  test('keeps package statistics when a later package refresh omits stat', () {
+    final rich = OqbApiDataEvent.fromJson({
+      'timestamp': '',
+      'url': '/api/get_usable_packages',
+      'path': '/api/get_usable_packages',
+      'method': 'POST',
+      'requestBody': 'app=OQB&opts%5Bstat%5D=1',
+      'response': {
+        'success': true,
+        'result': [
+          {
+            'id': 16,
+            'subject_code': 'econ',
+            'publisher_code': 'HKEAA',
+            'title_zh': '經濟',
+            'title_en': 'Economics',
+            'access_type': ['school'],
+            'stat': {
+              'count_topic': {'econ_5': 60},
+              'count_topic_difficulty': {
+                'econ_5': {'1': 16, '2': 35, '3': 9},
+              },
+            },
+          },
+        ],
+      },
+    });
+    final lean = OqbApiDataEvent.fromJson({
+      'timestamp': '',
+      'url': '/api/get_usable_packages',
+      'path': '/api/get_usable_packages',
+      'method': 'POST',
+      'requestBody': 'app=OQB',
+      'response': {
+        'success': true,
+        'result': [
+          {
+            'id': 16,
+            'subject_code': 'econ',
+            'publisher_code': 'HKEAA',
+            'title_zh': '經濟',
+            'title_en': 'Economics',
+            'access_type': ['school'],
+          },
+        ],
+      },
+    });
+
+    final state = const OqbObservedApiState().apply(rich).apply(lean);
+
+    expect(state.packages.single.topicCounts['econ_5'], 60);
+    expect(state.packages.single.topicDifficultyCounts['econ_5']?[2], 35);
+  });
+
   test('parses submitted paper score and review capability', () {
     final event = OqbApiDataEvent.fromJson({
       'timestamp': '',
