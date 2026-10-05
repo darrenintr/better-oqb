@@ -89,6 +89,33 @@ void main() {
     });
   });
 
+  group('placeholder file names', () {
+    test('recognises bare asset file names only', () {
+      expect(isBareFileName('q_16_0.png'), isTrue);
+      expect(isBareFileName('<p>Q_16_1.JPG</p>'), isTrue);
+      expect(isBareFileName(' q-3 b.jpeg&nbsp;'), isTrue);
+      expect(isBareFileName(''), isFalse);
+      expect(isBareFileName('<p>See q_16_0.png below</p>'), isFalse);
+      expect(isBareFileName('<p>Price rises to \$2.50</p>'), isFalse);
+    });
+
+    test('hides file names that OQB sends as question and choice text', () {
+      final content = OqbQuestionContent.fromJson({
+        'id': 1,
+        'content': 'q_16_0.png',
+        'url': 'https://example.com/q_16_0.png?sig=1',
+        'choices': [
+          {'content': 'q_16_1.png', 'url': 'https://example.com/q_16_1.png'},
+          {'content': '<p>E<sub>1</sub></p>'},
+        ],
+      });
+
+      expect(content.displayContent, isEmpty);
+      expect(content.choices[0].displayHtml, isEmpty);
+      expect(content.choices[1].displayHtml, '<p>E<sub>1</sub></p>');
+    });
+  });
+
   group('user input', () {
     test('parses observed and defensive encodings', () {
       expect(OqbUserInput.parse('[0]').choices, [0]);

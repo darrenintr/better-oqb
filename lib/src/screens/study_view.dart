@@ -798,7 +798,7 @@ class _QuestionStem extends StatelessWidget {
           )
         else ...[
           OqbHtml(
-            content.content,
+            content.displayContent,
             textStyle: theme.textTheme.bodyLarge?.copyWith(height: 1.5, fontSize: 17),
           ),
           if (content.url.isNotEmpty) ...[
@@ -814,7 +814,7 @@ class _QuestionStem extends StatelessWidget {
                     ),
                   ),
           ],
-          if (content.content.trim().isEmpty && content.url.isEmpty)
+          if (content.displayContent.trim().isEmpty && content.url.isEmpty)
             _Notice(text: 'This question has no text content.', onOpenOriginal: onOpenOriginal),
         ],
       ],
@@ -1030,11 +1030,11 @@ class _AnswerCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         OqbHtml(
-                          choice.html,
+                          choice.displayHtml,
                           textStyle: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
                         ),
                         if (choice.imageUrl.isNotEmpty) ...[
-                          if (choice.html.trim().isNotEmpty) const SizedBox(height: 8),
+                          if (choice.displayHtml.trim().isNotEmpty) const SizedBox(height: 8),
                           OqbImage(url: resolveOqbUrl(choice.imageUrl)),
                         ],
                       ],

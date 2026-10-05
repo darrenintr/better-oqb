@@ -106,6 +106,33 @@ void main() {
     expect(find.text('Question 5 of 5'), findsOneWidget);
   });
 
+  testWidgets('image-only questions do not show OQB file names', (tester) async {
+    await setSize(tester, const Size(1180, 820));
+    final result = startTrialResult(count: 1);
+    final question = (result['trial_question'] as List).single['question'] as Map;
+    question['content'] = 'q_16_0.png';
+    question['url'] = 'https://oqb.example/q_16_0.png';
+    question['choices'] = [
+      for (var i = 1; i <= 4; i++) {'content': 'q_16_$i.png', 'url': 'https://oqb.example/q_16_$i.png'},
+    ];
+    final controller = StudyController(OqbRepository(transport))
+      ..attach(OqbTrialSession.fromResult(result));
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(host(StudyView(
+      controller: controller,
+      meta: OqbMeta.empty,
+      onExit: () {},
+      onOpenOriginal: () {},
+      onSubmit: () async {},
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('.png', findRichText: true), findsNothing);
+    expect(find.text('A'), findsOneWidget);
+    expect(find.text('This question has no text content.'), findsNothing);
+  });
+
   testWidgets('submit requires confirmation', (tester) async {
     await setSize(tester, const Size(1180, 820));
     final controller = attached(count: 3);
