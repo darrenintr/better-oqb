@@ -157,6 +157,31 @@ third choice was correct.
 Better OQB must use the trial-question ID returned by `start_trial`; the
 question-bank question ID alone is not sufficient for `save_trial`.
 
+## Exercise papers: "Show" answer
+
+Captured on an exercise paper (the original page sends the whole trial on
+every save):
+
+- Checking a question with OQB's **Show** button saves it with
+  `trial_question[i][status]=submitted`; unchecked questions keep `null`.
+- Every `save_trial` response echoes `result.trial_question[]` with the
+  answer key, whether or not a question was checked:
+
+```text
+result.trial_question[]
+├─ id                 trial question id (string)
+├─ user_input, time_spent, status ("attempted", "" …)
+├─ question_id, trial_id, parent_id, num_of_children, children
+├─ suggested_answer   e.g. "[1]" = second choice
+├─ suggested_score
+├─ itype              "choice"
+└─ manual_mark, case_sensitive, max_match, abba_group, aabb_group, abcd_group
+```
+
+Better OQB keeps that key in memory for the attempt and only displays it for
+a question after the learner pressed "Show answer", which sends the same
+`status=submitted` save. A checked question's answer is then locked.
+
 ## Submitting a trial
 
 Submission uses the same `/api/save_trial` endpoint with the latest answers
@@ -296,7 +321,9 @@ These are implemented defensively and isolated in one place each:
 | `time_spent` values are cumulative seconds (we send the server value plus locally elapsed time), not deltas. The capture (`1`/`1` on a fresh trial) fits both readings. | `StudyController._updateFor`, `trialSeconds` |
 | `trial_question[i][status]` is echoed back as the last known status (`null` when unknown, as observed). | `OqbRequests._trialFields` |
 | The submit request carries every answered question (observed: "latest answers and progress state"). | `StudyController.submit` |
-| `save_trial` may echo updated `trial_question` statuses; anything else in its `result` is ignored. | `OqbRepository._statuses` |
+| `save_trial` may echo updated `trial_question` statuses and (exercise papers) `suggested_answer`; anything else in its `result` is ignored. | `OqbRepository._statuses`, `OqbRepository._answerKey` |
+| Exercise papers are any `mode_review` other than `test` (only `test` has been observed; the exercise value was not captured). | `StudyController.isExercise` |
+| OQB locks a question once it was checked (`status=submitted`), so Better OQB does too. | `StudyController.selectChoice` |
 | `choices[]` items are HTML strings, or maps with `content`/`text`/`url`-like keys. | `OqbChoice.fromJson` |
 | `trial.state` may be an object or a JSON string. | `OqbTrial.fromJson` |
 | `/public/meta.json` entries carry a code (`code` or `*_code`) and a name (`title_zh`/`title_en`/`name`…); unknown layouts fall back to raw codes. | `OqbMeta.fromJson` |

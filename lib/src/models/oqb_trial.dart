@@ -68,6 +68,19 @@ class OqbUserInput {
   String toString() => serialize();
 }
 
+final RegExp _bareFileName = RegExp(
+  r'^[\w\-. ]+\.(png|jpe?g|gif|webp|svg|bmp|pdf)$',
+  caseSensitive: false,
+);
+
+/// Whether [html] is nothing but an asset file name such as `q_16_0.png`.
+/// OQB sends the image's file name as the text of image-only questions and
+/// choices; it is not meant to be shown to learners.
+bool isBareFileName(String html) {
+  final text = html.replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('&nbsp;', ' ').trim();
+  return text.isNotEmpty && _bareFileName.hasMatch(text);
+}
+
 String choiceLabel(int index) =>
     index >= 0 && index < 26 ? String.fromCharCode(65 + index) : '${index + 1}';
 
@@ -87,6 +100,9 @@ class OqbChoice {
   final String imageUrl;
 
   String get label => choiceLabel(index);
+
+  /// [html] without a placeholder file name.
+  String get displayHtml => isBareFileName(html) ? '' : html;
 
   /// `choices[]` has not been captured with a fully known item shape, so
   /// accept strings and maps with common content keys.
@@ -165,6 +181,9 @@ class OqbQuestionContent {
   /// original OQB page until its payloads are mapped.
   bool get isMultipleChoice => choices.length >= 2;
 
+  /// [content] without a placeholder file name.
+  String get displayContent => isBareFileName(content) ? '' : content;
+
   bool get urlLooksLikeImage {
     final lower = url.toLowerCase();
     final path = Uri.tryParse(lower)?.path ?? lower;
@@ -211,6 +230,7 @@ class OqbTrialQuestion {
     this.timeSpent = 0,
     this.userInput = OqbUserInput.empty,
     this.question,
+    this.suggestedAnswer,
     this.isCorrect,
     this.score,
   });
@@ -225,6 +245,10 @@ class OqbTrialQuestion {
   final int timeSpent;
   final OqbUserInput userInput;
   final OqbQuestionContent? question;
+
+  /// Answer key on the trial question itself, as exercise papers return it
+  /// from save_trial. Null when OQB did not send one.
+  final OqbUserInput? suggestedAnswer;
 
   /// Review mode only.
   final bool? isCorrect;
@@ -243,6 +267,7 @@ class OqbTrialQuestion {
       timeSpent: timeSpent ?? this.timeSpent,
       userInput: userInput ?? this.userInput,
       question: question,
+      suggestedAnswer: suggestedAnswer,
       isCorrect: isCorrect,
       score: score,
     );
@@ -254,6 +279,7 @@ class OqbTrialQuestion {
         ? OqbQuestionContent.fromJson(asMap(rawQuestion))
         : null;
     final status = json['status'];
+    final suggested = OqbUserInput.parse(json['suggested_answer']);
     return OqbTrialQuestion(
       id: asInt(json['id']),
       seq: asInt(json['seq']),
@@ -262,6 +288,7 @@ class OqbTrialQuestion {
       timeSpent: asInt(json['time_spent']),
       userInput: OqbUserInput.parse(json['user_input']),
       question: question,
+      suggestedAnswer: suggested.isEmpty ? null : suggested,
       isCorrect: json.containsKey('is_correct') ? asBool(json['is_correct']) : null,
       score: asNum(json['score']),
     );
