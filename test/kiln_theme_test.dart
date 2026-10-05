@@ -135,4 +135,48 @@ void main() {
       });
     }
   }
+
+  for (final size in const [Size(360, 740), Size(1180, 820)]) {
+    testWidgets('continue cards show progress only when known at ${size.width.toInt()}px', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final transport = FakeTransport((request) {
+        if (request.command == 'loadPapers' && request.fields['criteria[to_submit]'] == '1') {
+          return envelope([
+            {'id': 1, 'subject_code': 'econ', 'title': 'Big practice', 'num_of_questions': 40},
+            {'id': 2, 'subject_code': 'econ', 'title': 'Fresh paper', 'num_of_questions': 10},
+          ]);
+        }
+        return catalogResponses(request);
+      });
+      final catalog = CatalogController(OqbRepository(transport));
+      addTearDown(catalog.dispose);
+      await catalog.refresh();
+      final started = <int>[];
+
+      await tester.pumpWidget(kilnHost(
+        Brightness.light,
+        CatalogView(
+          controller: catalog,
+          progress: const {1: PaperProgress(answered: 16, total: 40, questionNumber: 17)},
+          onStartPaper: (paper) => started.add(paper.id),
+          onReviewPaper: (_) {},
+          onOpenOriginal: () {},
+          onCreatePaper: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('16 of 40 answered · question 17'), findsOneWidget);
+      expect(find.text('Resume'), findsOneWidget);
+      expect(find.text('Start or resume'), findsOneWidget, reason: 'no progress known for paper 2');
+      final bar = tester.widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator));
+      expect(bar.value, closeTo(0.4, 1e-9));
+
+      await tester.tap(find.text('Fresh paper'));
+      expect(started, [2]);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

@@ -50,6 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
   int _handledRoutePaperId = 0;
 
   int _reviewPaperId = 0;
+
+  /// Progress of papers studied in this app session, for the Continue cards
+  /// (load_papers does not report it).
+  final Map<int, PaperProgress> _progress = <int, PaperProgress>{};
   OqbPaperSummary? _reviewSummary;
   OqbReview? _review;
   StudyController? _reviewStudy;
@@ -151,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _snack('Answers in the current paper are not saved yet; staying on it.');
         return;
       }
+      _rememberProgress();
       _study.close();
       _assets.clear();
     }
@@ -182,6 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (leave != true) return;
     }
+    _rememberProgress();
     _study.close();
     _assets.clear();
     if (mounted) setState(() => _requestedPaperId = 0);
@@ -193,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _study.submit(); // errors are shown by StudyView
     if (!mounted) return;
     _snack('Paper submitted.');
+    _progress.remove(paper.id);
     _catalog.refreshPapers(paper.subjectCode);
     _study.close();
     setState(() => _requestedPaperId = 0);
@@ -218,6 +225,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || _reviewPaperId != paperId) return;
       setState(() => _reviewError = error);
     }
+  }
+
+  void _rememberProgress() {
+    final session = _study.session;
+    if (session == null || _study.isReadOnly || _study.total == 0) return;
+    _progress[session.paper.id] = PaperProgress(
+      answered: _study.answeredCount,
+      total: _study.total,
+      questionNumber: _study.questionNumber,
+    );
   }
 
   void _closeReview() {
@@ -405,6 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onReviewPaper: (paper) => _openReview(paper.id, summary: paper),
         onOpenOriginal: _showOriginalPage,
         onCreatePaper: _createPaper,
+        progress: Map<int, PaperProgress>.unmodifiable(_progress),
       );
     }
 

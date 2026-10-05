@@ -5,6 +5,23 @@ import '../models/oqb_api_data.dart';
 import '../models/oqb_meta.dart';
 import '../theme/kiln_theme.dart';
 
+/// How far the learner got in a paper, as last seen in the study view.
+///
+/// load_papers does not report answered counts, so this is only known for
+/// papers opened in this app session.
+@immutable
+class PaperProgress {
+  const PaperProgress({required this.answered, required this.total, required this.questionNumber});
+
+  final int answered;
+  final int total;
+
+  /// 1-based question the learner was on.
+  final int questionNumber;
+
+  double get fraction => total <= 0 ? 0 : (answered / total).clamp(0, 1).toDouble();
+}
+
 /// Better OQB home: resumable papers, subjects, banks, topic/difficulty
 /// availability and submitted attempts — all from the authenticated API.
 class CatalogView extends StatefulWidget {
@@ -15,9 +32,13 @@ class CatalogView extends StatefulWidget {
     required this.onReviewPaper,
     required this.onOpenOriginal,
     required this.onCreatePaper,
+    this.progress = const {},
   });
 
   final CatalogController controller;
+
+  /// Known progress per paper id; papers without an entry show no bar.
+  final Map<int, PaperProgress> progress;
   final ValueChanged<OqbPaperSummary> onStartPaper;
   final ValueChanged<OqbPaperSummary> onReviewPaper;
   final VoidCallback onOpenOriginal;
@@ -44,29 +65,51 @@ class _CatalogViewState extends State<CatalogView> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 900;
+            final subject = wide ? (selected ?? (subjects.isEmpty ? null : subjects.first)) : selected;
             final overview = _Overview(
               controller: controller,
-              selectedSubject: wide ? (selected ?? (subjects.isEmpty ? null : subjects.first)) : selected,
+              selectedSubject: subject,
               onSelectSubject: (subject) => setState(() => _subject = subject),
-              onStartPaper: widget.onStartPaper,
-              onCreatePaper: widget.onCreatePaper,
+              continueSection: wide
+                  ? null
+                  : _ContinueSection(
+                      controller: controller,
+                      progress: widget.progress,
+                      onStartPaper: widget.onStartPaper,
+                      onCreatePaper: widget.onCreatePaper,
+                      wide: false,
+                    ),
               compact: !wide,
             );
 
             if (wide) {
-              final subject = selected ?? (subjects.isEmpty ? null : subjects.first);
+              final continueSection = _ContinueSection(
+                controller: controller,
+                progress: widget.progress,
+                onStartPaper: widget.onStartPaper,
+                onCreatePaper: widget.onCreatePaper,
+                wide: true,
+              );
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(width: constraints.maxWidth >= 1300 ? 440 : 380, child: overview),
+                  SizedBox(width: constraints.maxWidth >= 1300 ? 320 : 280, child: overview),
                   const VerticalDivider(width: 1),
                   Expanded(
                     child: subject == null
-                        ? const Center(child: Text('No question banks are available to this account.'))
+                        ? ListView(
+                            padding: const EdgeInsets.fromLTRB(32, 40, 32, 48),
+                            children: [
+                              continueSection,
+                              const SizedBox(height: 48),
+                              const _EmptyNote('No question banks are available to this account.'),
+                            ],
+                          )
                         : _SubjectDetail(
                             key: ValueKey(subject),
                             controller: controller,
                             subject: subject,
+                            leading: continueSection,
                             onStartPaper: widget.onStartPaper,
                             onReviewPaper: widget.onReviewPaper,
                             onOpenOriginal: widget.onOpenOriginal,
@@ -101,21 +144,21 @@ class _CatalogViewState extends State<CatalogView> {
   }
 }
 
+/// Subject list, with the Continue section above it on phones. On wide
+/// layouts it is the left-hand subject navigation.
 class _Overview extends StatelessWidget {
   const _Overview({
     required this.controller,
     required this.selectedSubject,
     required this.onSelectSubject,
-    required this.onStartPaper,
-    required this.onCreatePaper,
+    required this.continueSection,
     required this.compact,
   });
 
   final CatalogController controller;
   final String? selectedSubject;
   final ValueChanged<String> onSelectSubject;
-  final ValueChanged<OqbPaperSummary> onStartPaper;
-  final VoidCallback onCreatePaper;
+  final Widget? continueSection;
   final bool compact;
 
   @override
@@ -124,76 +167,57 @@ class _Overview extends StatelessWidget {
     final text = context.kilnText;
     final data = controller.data;
     final meta = controller.meta;
-    final papers = data.availablePapers;
+
+    final refresh = controller.isLoading
+        ? const Padding(
+            padding: EdgeInsets.all(12),
+            child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          )
+        : IconButton(
+            tooltip: 'Refresh',
+            onPressed: controller.refresh,
+            icon: const Icon(Icons.refresh),
+          );
 
     return RefreshIndicator(
       onRefresh: controller.refresh,
       color: k.ink,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+        padding: EdgeInsets.fromLTRB(compact ? 20 : 16, compact ? 20 : 32, compact ? 20 : 16, 40),
         children: [
-          Row(
-            children: [
-              Expanded(child: Text('Study', style: text.title)),
-              if (controller.isLoading)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                )
-              else
-                IconButton(
-                  tooltip: 'Refresh',
-                  onPressed: controller.refresh,
-                  icon: const Icon(Icons.refresh),
+          if (compact)
+            Row(children: [Expanded(child: Text('Study', style: text.title)), refresh])
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text('SUBJECTS', style: text.eyebrow),
+                  ),
                 ),
-            ],
-          ),
+                refresh,
+              ],
+            ),
           if (controller.error != null)
             KilnBanner(
-              margin: const EdgeInsets.only(top: 12),
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
               danger: true,
               icon: Icons.error_outline,
               title: 'Some OQB data could not be loaded',
               message: '${controller.error}',
               action: OutlinedButton(onPressed: controller.refresh, child: const Text('Retry')),
             ),
-          const SizedBox(height: 24),
-          _SectionTitle(
-            title: 'Continue',
-            trailing: FilledButton.icon(
-              onPressed: onCreatePaper,
-              style: kilnAccentButtonStyle(k),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('New paper'),
+          if (continueSection != null) ...[
+            const SizedBox(height: 16),
+            continueSection!,
+            const SizedBox(height: 32),
+            Padding(
+              padding: const EdgeInsets.only(left: 12, bottom: 8),
+              child: Text('SUBJECTS', style: text.eyebrow),
             ),
-          ),
-          if (papers.isEmpty)
-            _EmptyNote(
-              controller.hasLoaded
-                  ? 'No papers waiting. Create one or pick a preset paper from a subject.'
-                  : 'Loading papers…',
-            )
-          else
-            _RowGroup(
-              children: [
-                for (final paper in papers)
-                  _PaperRow(
-                    paper: paper,
-                    subtitle: [
-                      if (paper.subjectCode.isNotEmpty) meta.label(paper.subjectCode),
-                      if (paper.numQuestions > 0) '${paper.numQuestions} questions',
-                      if (paper.isTeacher) 'From teacher',
-                    ].join(' · '),
-                    actionLabel: 'Start / resume',
-                    onAction: () => onStartPaper(paper),
-                  ),
-              ],
-            ),
-          const SizedBox(height: 32),
-          Padding(
-            padding: const EdgeInsets.only(left: 12, bottom: 8),
-            child: Text('SUBJECTS', style: text.eyebrow),
-          ),
+          ] else
+            const SizedBox(height: 8),
           for (final subject in data.subjects)
             _SubjectTile(
               subject: subject,
@@ -205,6 +229,190 @@ class _Overview extends StatelessWidget {
               onTap: () => onSelectSubject(subject),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Papers to start or resume, as cards with a progress bar when the
+/// answered count is known. Holds the view's one clay action, New paper.
+class _ContinueSection extends StatelessWidget {
+  const _ContinueSection({
+    required this.controller,
+    required this.progress,
+    required this.onStartPaper,
+    required this.onCreatePaper,
+    required this.wide,
+  });
+
+  final CatalogController controller;
+  final Map<int, PaperProgress> progress;
+  final ValueChanged<OqbPaperSummary> onStartPaper;
+  final VoidCallback onCreatePaper;
+  final bool wide;
+
+  static const double _minCardWidth = 280;
+  static const double _gap = 16;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.kiln;
+    final text = context.kilnText;
+    final meta = controller.meta;
+    final papers = controller.data.availablePapers;
+    final newPaper = FilledButton.icon(
+      onPressed: onCreatePaper,
+      style: kilnAccentButtonStyle(k),
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('New paper'),
+    );
+
+    final cards = papers.isEmpty
+        ? _EmptyNote(
+            controller.hasLoaded
+                ? 'No papers waiting. Create one or pick a preset paper from a subject.'
+                : 'Loading papers…',
+          )
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = ((constraints.maxWidth + _gap) / (_minCardWidth + _gap)).floor().clamp(1, 4);
+              final width = (constraints.maxWidth - _gap * (columns - 1)) / columns;
+              return Wrap(
+                spacing: _gap,
+                runSpacing: _gap,
+                children: [
+                  for (final paper in papers)
+                    SizedBox(
+                      width: width,
+                      child: _ContinueCard(
+                        paper: paper,
+                        progress: progress[paper.id],
+                        subtitle: [
+                          if (paper.subjectCode.isNotEmpty) meta.label(paper.subjectCode),
+                          if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                          if (paper.isTeacher) 'From teacher',
+                        ].join(' · '),
+                        onTap: () => onStartPaper(paper),
+                      ),
+                    ),
+                ],
+              );
+            },
+          );
+
+    if (wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: 16,
+            runSpacing: 12,
+            children: [
+              Text('Continue where you left off', style: text.headline),
+              newPaper,
+            ],
+          ),
+          const SizedBox(height: 20),
+          cards,
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Continue', style: text.title.copyWith(fontWeight: FontWeight.w400,
+            fontVariations: KilnFonts.weight(FontWeight.w400))),
+        const SizedBox(height: 12),
+        cards,
+        const SizedBox(height: 12),
+        SizedBox(height: 48, child: newPaper),
+      ],
+    );
+  }
+}
+
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({
+    required this.paper,
+    required this.progress,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final OqbPaperSummary paper;
+  final PaperProgress? progress;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.kiln;
+    final text = context.kilnText;
+    final progress = this.progress;
+    final title = paper.title.isEmpty ? 'Paper ${paper.id}' : paper.title;
+
+    return Semantics(
+      button: true,
+      child: Material(
+        color: k.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(KilnRadius.lg),
+          side: BorderSide(color: k.hairline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.title.copyWith(fontSize: 21, height: 27 / 21),
+                ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: text.caption),
+                ],
+                if (progress != null) ...[
+                  const SizedBox(height: 16),
+                  Semantics(
+                    label: 'Progress',
+                    value: '${progress.answered} of ${progress.total} answered',
+                    child: LinearProgressIndicator(
+                      value: progress.fraction,
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ExcludeSemantics(
+                    child: Text(
+                      '${progress.answered} of ${progress.total} answered · question ${progress.questionNumber}',
+                      style: text.caption,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Text(
+                      progress == null ? 'Start or resume' : 'Resume',
+                      style: text.label.copyWith(color: k.clayText),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(Icons.arrow_forward, size: 16, color: k.clayText),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -416,10 +624,14 @@ class _SubjectDetail extends StatelessWidget {
     required this.onReviewPaper,
     required this.onOpenOriginal,
     this.onBack,
+    this.leading,
   });
 
   final CatalogController controller;
   final String subject;
+
+  /// Shown above the subject (the Continue section on wide layouts).
+  final Widget? leading;
   final ValueChanged<OqbPaperSummary> onStartPaper;
   final ValueChanged<OqbPaperSummary> onReviewPaper;
   final VoidCallback onOpenOriginal;
@@ -447,6 +659,7 @@ class _SubjectDetail extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (leading != null) ...[leading!, const SizedBox(height: 56)],
                 Row(
                   children: [
                     if (onBack != null)
