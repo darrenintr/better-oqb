@@ -4,11 +4,29 @@
 
   const MAX_EVENTS = 500;
   const MAX_PREVIEW = 8192;
-  const SECRET_KEY = /(^|_)(authorization|cookie|csrf|xsrf|token|secret|password|passwd|session|sessionid|sid)($|_)/i;
+  const SECRET_KEY = /(^|_)(authorization|cookie|csrf|xsrf|token|secret|password|passwd|session|sessionid|sesskey|sid|user_id|city_id|cfullname|efullname|nickname|email_address_hash|register_email_hash|login_email_hash|ip)($|_)/i;
   const buffer = window.__betterOqbNetworkBuffer =
     window.__betterOqbNetworkBuffer || [];
 
   const now = () => new Date().toISOString();
+
+  function isRelevantUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl, location.href);
+      if (url.host !== 'oqb.edcity.hk') return false;
+      if (url.pathname === '/api/get_teachers') return false;
+      return url.pathname.startsWith('/api/') ||
+        url.pathname.startsWith('/public/');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function scrubSecrets(value) {
+    return String(value)
+      .replace(/([?&](?:sig|token|sesskey)=)[^&]+/gi, '$1[redacted]')
+      .replace(/((?:authorization|cookie|csrf|xsrf|token|secret|password|session|sesskey)[\w-]*\s*[:=]\s*)[^&\s,;]+/gi, '$1[redacted]');
+  }
 
   function redactObject(value, depth = 0) {
     if (depth > 8) return '[depth-limit]';
@@ -24,8 +42,11 @@
       }
       return out;
     }
-    if (typeof value === 'string' && value.length > MAX_PREVIEW) {
-      return value.slice(0, MAX_PREVIEW) + '…';
+    if (typeof value === 'string') {
+      const scrubbed = scrubSecrets(value);
+      return scrubbed.length > MAX_PREVIEW
+        ? scrubbed.slice(0, MAX_PREVIEW) + '…'
+        : scrubbed;
     }
     return value;
   }
@@ -38,9 +59,7 @@
         return JSON.stringify(redactObject(JSON.parse(trimmed)));
       } catch (_) {}
     }
-    return trimmed
-      .replace(/((?:authorization|cookie|csrf|xsrf|token|secret|password|session)[\w-]*\s*[:=]\s*)[^&\s,;]+/gi, '$1[redacted]')
-      .slice(0, MAX_PREVIEW);
+    return scrubSecrets(trimmed).slice(0, MAX_PREVIEW);
   }
 
   function bodyPreview(body) {
@@ -74,6 +93,8 @@
   }
 
   function emit(event) {
+    if (!isRelevantUrl(event.url || '')) return;
+
     const normalized = {
       timestamp: now(),
       kind: event.kind || 'resource',
