@@ -96,6 +96,11 @@
     if (body == null) return '';
     try {
       if (typeof body === 'string') {
+        const trimmed = body.trim();
+        if (trimmed.startsWith('{')) {
+          const parsed = JSON.parse(trimmed);
+          return parsed && typeof parsed[name] === 'string' ? parsed[name] : '';
+        }
         return new URLSearchParams(body).get(name) || '';
       }
       if (body instanceof URLSearchParams || body instanceof FormData) {

@@ -10,10 +10,15 @@ class OqbNetworkInspector extends StatelessWidget {
     super.key,
     required this.events,
     required this.onClear,
+    this.clientLog = const <String>[],
   });
 
   final List<OqbNetworkEvent> events;
   final VoidCallback onClear;
+
+  /// Non-sensitive Better OQB API client diagnostics (commands, outcomes and
+  /// payload shapes; never tokens, sesskeys or field values).
+  final List<String> clientLog;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +83,25 @@ class OqbNetworkInspector extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
+          if (clientLog.isNotEmpty)
+            ExpansionTile(
+              leading: const Icon(Icons.terminal),
+              title: Text('Better OQB API client (${clientLog.length})'),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 240),
+                  child: ListView(
+                    shrinkWrap: true,
+                    reverse: true,
+                    children: [
+                      for (final line in clientLog.reversed)
+                        SelectableText(line, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           Expanded(
             child: candidates.isEmpty
                 ? const Center(

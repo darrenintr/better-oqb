@@ -23,4 +23,5 @@ flutter:
   assets:
     - assets/oqb_bridge.js
     - assets/oqb_network_probe.js
+    - assets/oqb_api_client.js
     - assets/oqb_data_bridge.js

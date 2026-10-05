@@ -70,16 +70,21 @@ class OqbPageState {
       question!.html.trim().isNotEmpty &&
       question!.options.isNotEmpty;
 
-  bool get isQuestionRoute {
-    final path = Uri.tryParse(url)?.path ?? '';
-    return RegExp(r'^/paper/\d+/do(?:/\d+)?/?$').hasMatch(path);
-  }
+  static final RegExp _questionRoute =
+      RegExp(r'^/paper/(\d+)/do(?:/(\d+))?/?$');
 
-  int get routeQuestionNumber {
-    final path = Uri.tryParse(url)?.path ?? '';
-    final match = RegExp(r'^/paper/\d+/do(?:/(\d+))?/?$').firstMatch(path);
-    return int.tryParse(match?.group(1) ?? '') ?? 0;
-  }
+  RegExpMatch? get _routeMatch =>
+      _questionRoute.firstMatch(Uri.tryParse(url)?.path ?? '');
+
+  /// True on OQB's `/paper/{paperId}/do/{questionNumber}` route. Used to
+  /// attach the API-backed study session to the paper OQB is showing.
+  bool get isQuestionRoute => _routeMatch != null;
+
+  int get routePaperId => int.tryParse(_routeMatch?.group(1) ?? '') ?? 0;
+
+  /// One-based question number from the route, or 0.
+  int get routeQuestionNumber =>
+      int.tryParse(_routeMatch?.group(2) ?? '') ?? 0;
 
   factory OqbPageState.fromJson(Map<String, dynamic> json) {
     List<String> strings(dynamic value) => value is List

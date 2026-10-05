@@ -7,17 +7,30 @@ import '../models/oqb_page_state.dart';
 typedef PageStateCallback = void Function(OqbPageState state);
 typedef NetworkEventCallback = void Function(OqbNetworkEvent event);
 typedef ApiDataCallback = void Function(OqbApiDataEvent event);
+typedef ApiClientMessageCallback = void Function(Object? raw);
 
 class OqbBridge {
   OqbBridge({
     required this.onPageState,
     this.onNetworkEvent,
     this.onApiData,
+    this.onApiClientMessage,
   });
 
   final PageStateCallback onPageState;
   final NetworkEventCallback? onNetworkEvent;
   final ApiDataCallback? onApiData;
+
+  /// Results/status from the same-origin API client (assets/oqb_api_client.js).
+  final ApiClientMessageCallback? onApiClientMessage;
+
+  void handleApiClientMessage(Object? raw) {
+    try {
+      onApiClientMessage?.call(raw);
+    } catch (_) {
+      // Never let a malformed client message break the browser.
+    }
+  }
 
   void handleMessage(Object? raw) {
     try {

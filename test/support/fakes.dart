@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:better_oqb/src/services/oqb_api_client.dart';
 import 'package:better_oqb/src/services/oqb_api_requests.dart';

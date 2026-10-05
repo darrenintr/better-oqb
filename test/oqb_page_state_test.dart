@@ -25,6 +25,7 @@ void main() {
     });
 
     expect(state.isQuestionRoute, isTrue);
+    expect(state.routePaperId, 2658825);
     expect(state.routeQuestionNumber, 50);
     expect(state.hasQuestion, isFalse);
   });
@@ -38,5 +39,16 @@ void main() {
 
     expect(state.isQuestionRoute, isFalse);
     expect(state.routeQuestionNumber, 0);
+  });
+
+  test('extracts paper id from routes without a question number', () {
+    const base = 'https://oqb.edcity.hk';
+    expect(OqbPageState.fromJson({'url': '$base/paper/42/do'}).routePaperId, 42);
+    expect(OqbPageState.fromJson({'url': '$base/paper/42/do/'}).routeQuestionNumber, 0);
+    expect(OqbPageState.fromJson({'url': '$base/paper/42/do/7?x=1#y'}).routeQuestionNumber, 7);
+    expect(OqbPageState.fromJson({'url': '$base/paper/42/review'}).isQuestionRoute, isFalse);
+    expect(OqbPageState.fromJson({'url': '$base/paper/abc/do/1'}).routePaperId, 0);
+    expect(OqbPageState.fromJson({'url': 'not a url'}).isQuestionRoute, isFalse);
+    expect(const OqbPageState().routePaperId, 0);
   });
 }
