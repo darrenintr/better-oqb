@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/study_controller.dart';
 import '../models/oqb_trial.dart';
+import '../theme/kiln_theme.dart';
 
 enum _NavigatorFilter { all, unanswered, answered, flagged }
 
@@ -25,7 +26,7 @@ class QuestionNavigator extends StatefulWidget {
 
 class _QuestionNavigatorState extends State<QuestionNavigator> {
   static const double _tile = 46;
-  static const double _gap = 6;
+  static const double _gap = 8;
 
   _NavigatorFilter _filter = _NavigatorFilter.all;
   final ScrollController _scroll = ScrollController();
@@ -136,25 +137,71 @@ class _QuestionNavigatorState extends State<QuestionNavigator> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: widget.shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
       children: [
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
+        _FilterControl(
+          labels: filterLabels,
+          selected: _filter,
+          onSelected: (filter) => setState(() {
+            _filter = filter;
+            _lastScrolledIndex = -1;
+          }),
+        ),
+        const SizedBox(height: 16),
+        if (widget.shrinkWrap) grid else Expanded(child: grid),
+      ],
+    );
+  }
+}
+
+/// Segmented filter: All / To do / Done / Pending (Wrong in review).
+class _FilterControl extends StatelessWidget {
+  const _FilterControl({required this.labels, required this.selected, required this.onSelected});
+
+  final Map<_NavigatorFilter, String> labels;
+  final _NavigatorFilter selected;
+  final ValueChanged<_NavigatorFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.kiln;
+    final style = context.kilnText.label.copyWith(fontSize: 13, height: 18 / 13);
+    return Semantics(
+      container: true,
+      label: 'Filter questions',
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(color: k.oat, borderRadius: BorderRadius.circular(KilnRadius.md)),
+        child: Row(
           children: [
-            for (final entry in filterLabels.entries)
-              ChoiceChip(
-                label: Text(entry.value),
-                selected: _filter == entry.key,
-                visualDensity: VisualDensity.compact,
-                onSelected: (_) => setState(() {
-                  _filter = entry.key;
-                  _lastScrolledIndex = -1;
-                }),
+            for (final entry in labels.entries)
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  selected: entry.key == selected,
+                  child: Material(
+                    color: entry.key == selected ? k.surfaceRaised : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => onSelected(entry.key),
+                      child: SizedBox(
+                        height: 36,
+                        child: Center(
+                          child: Text(
+                            entry.value,
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            style: style.copyWith(color: entry.key == selected ? k.ink : k.inkMuted),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        if (widget.shrinkWrap) grid else Expanded(child: grid),
-      ],
+      ),
     );
   }
 }
@@ -176,64 +223,105 @@ class _QuestionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final k = context.kiln;
     final answered = controller.isAnswered(question);
     final saveState = controller.isReadOnly ? OqbSaveState.saved : controller.saveStateFor(question);
 
-    Color background = scheme.surfaceContainerHighest;
-    Color foreground = scheme.onSurface;
-    Color? border;
+    var background = k.surfaceRaised;
+    var foreground = k.ink;
+    BorderSide border = BorderSide(color: k.borderControl);
+    IconData? mark;
+    var pendingDot = false;
     var semantics = 'Question $number';
 
     if (controller.isReadOnly && question.isCorrect != null) {
-      background = question.isCorrect! ? Colors.green.shade100 : scheme.errorContainer;
-      foreground = question.isCorrect! ? Colors.green.shade900 : scheme.onErrorContainer;
-      semantics += question.isCorrect! ? ', correct' : ', incorrect';
+      final correct = question.isCorrect!;
+      background = correct ? k.successText : k.dangerText;
+      foreground = k.bg;
+      border = BorderSide.none;
+      mark = correct ? Icons.check_rounded : Icons.close_rounded;
+      semantics += correct ? ', correct' : ', incorrect';
     } else if (answered) {
-      background = scheme.secondaryContainer;
-      foreground = scheme.onSecondaryContainer;
+      background = k.oat;
+      border = BorderSide.none;
       semantics += ', answered';
     }
     if (saveState == OqbSaveState.failed) {
-      border = scheme.error;
+      background = k.surfaceRaised;
+      foreground = k.dangerText;
+      border = BorderSide(color: k.dangerText, width: 1.5);
       semantics += ', not saved';
     } else if (saveState == OqbSaveState.pending || saveState == OqbSaveState.saving) {
-      border = scheme.tertiary;
+      pendingDot = true;
+      semantics += saveState == OqbSaveState.saving ? ', saving' : ', unsaved';
     }
     if (isCurrent) {
-      background = scheme.primary;
-      foreground = scheme.onPrimary;
+      background = k.ink;
+      foreground = k.onInk;
+      border = BorderSide.none;
       semantics += ', current';
     }
+
+    final label = Text(
+      '$number',
+      style: context.kilnText.label.copyWith(
+        fontSize: 13,
+        height: 1.1,
+        color: foreground,
+        fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+        fontVariations: KilnFonts.weight(isCurrent ? FontWeight.w600 : FontWeight.w500),
+      ),
+    );
 
     return Semantics(
       button: true,
       selected: isCurrent,
       label: semantics,
-      child: Material(
-        color: background,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: border == null ? BorderSide.none : BorderSide(color: border, width: 2),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Center(
-            child: FittedBox(
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Text(
-                  '$number',
-                  style: TextStyle(
-                    color: foreground,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+      excludeSemantics: true,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: Material(
+              color: background,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(KilnRadius.sm),
+                side: border,
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                child: Center(
+                  child: FittedBox(
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: mark == null
+                          ? label
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [label, Icon(mark, size: 12, color: foreground)],
+                            ),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+          if (pendingDot)
+            Positioned(
+              top: -3,
+              right: -3,
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: k.sky,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: k.surface, width: 1.5),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

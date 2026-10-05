@@ -66,6 +66,15 @@ including which request/response details are still assumptions.
   next to long questions and diagrams.
 - Images can be tapped to zoom. Keyboard: ←/→ to navigate, A–H or 1–8 to answer.
 
+### Look and feel
+
+The interface uses the Kiln design system (`lib/src/theme/kiln_theme.dart`):
+Ivory light and Slate dark themes, serif type for questions and answers, sans
+for controls, and one clay accent per screen. Correct and incorrect are always
+shown with an icon and a word as well as colour. Fonts (Newsreader, Instrument
+Sans, JetBrains Mono) are bundled in `assets/fonts/` under the SIL Open Font
+License.
+
 ### Privacy and security
 
 - The OQB token is learned inside the page from OQB's own requests and never

@@ -191,6 +191,39 @@ void main() {
     expect(submitted, 1);
   });
 
+  for (final entry in {'phone': const Size(360, 740), 'desktop': const Size(1600, 1000)}.entries) {
+    testWidgets('original OQB is reachable from the study header on ${entry.key}', (tester) async {
+      await setSize(tester, entry.value);
+      final controller = attached(count: 3);
+      addTearDown(controller.dispose);
+      var opened = 0;
+
+      await tester.pumpWidget(host(StudyView(
+        controller: controller,
+        meta: OqbMeta.empty,
+        onExit: () {},
+        onOpenOriginal: () => opened++,
+        onSubmit: () async {},
+      )));
+      await tester.pumpAndSettle();
+
+      final wide = entry.value.width >= kStudyPanelBreakpoint;
+      if (wide) {
+        // A text link in the header; no ⋮ menu is needed without an inspector.
+        expect(find.byTooltip('More'), findsNothing);
+        await tester.tap(find.text('Original OQB'));
+      } else {
+        expect(find.text('Original OQB'), findsNothing);
+        await tester.tap(find.byTooltip('More'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Original OQB page'));
+      }
+      await tester.pumpAndSettle();
+      expect(opened, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('phone navigator sheet jumps to a question', (tester) async {
     await setSize(tester, const Size(360, 740));
     final controller = attached(count: 30);
