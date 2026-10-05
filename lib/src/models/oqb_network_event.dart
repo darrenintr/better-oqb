@@ -24,12 +24,16 @@ class OqbNetworkEvent {
   bool get looksLikeApi {
     final lowerUrl = url.toLowerCase();
     final lowerType = contentType.toLowerCase();
-    return lowerType.contains('json') ||
-        lowerUrl.contains('/api/') ||
-        lowerUrl.contains('/ajax') ||
-        lowerUrl.contains('/graphql') ||
-        kind == 'fetch' ||
-        kind == 'xhr';
+    final isOqb = lowerUrl.startsWith('/api/') ||
+        lowerUrl.startsWith('/public/') ||
+        lowerUrl.contains('oqb.edcity.hk/api/') ||
+        lowerUrl.contains('oqb.edcity.hk/public/');
+    final isIrrelevantRoster = lowerUrl.contains('/api/get_teachers');
+    return isOqb &&
+        !isIrrelevantRoster &&
+        (lowerType.contains('json') ||
+            lowerUrl.contains('/api/') ||
+            lowerUrl.contains('/public/'));
   }
 
   String get signature => '$method $url';
