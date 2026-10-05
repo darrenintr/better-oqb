@@ -27,9 +27,34 @@
     return allowed.has(pathOf(rawUrl));
   }
 
+  function sameOrigin(rawUrl) {
+    try {
+      return new URL(rawUrl, location.href).host === location.host;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Lets the same-origin API client (oqb_api_client.js) learn the session
+  // token and trial sesskeys from OQB's own requests. Nothing secret leaves
+  // the page; the observer keeps them in its closure.
+  function observeRequest(rawUrl, body) {
+    if (!sameOrigin(rawUrl)) return;
+    try {
+      window.__betterOqbSessionObserver?.request(pathOf(rawUrl), body);
+    } catch (_) {}
+  }
+
+  function observeResponse(rawUrl, payload) {
+    if (!sameOrigin(rawUrl)) return;
+    try {
+      window.__betterOqbSessionObserver?.response(pathOf(rawUrl), payload);
+    } catch (_) {}
+  }
+
   function safeString(value) {
     const text = String(value);
-    if (/^https?:\\/\\//i.test(text)) {
+    if (/^https?:\/\//i.test(text)) {
       try {
         const parsed = new URL(text);
         if (parsed.searchParams.has('sig')) parsed.searchParams.set('sig', '[redacted]');
@@ -41,7 +66,7 @@
 
     return text
       .replace(/([?&](?:sig|token|sesskey)=)[^&]+/gi, '$1[redacted]')
-      .replace(/((?:token|sesskey|password)\\s*[:=]\\s*)[^&\\s,;]+/gi, '$1[redacted]');
+      .replace(/((?:token|sesskey|password)\s*[:=]\s*)[^&\s,;]+/gi, '$1[redacted]');
   }
 
   function sanitize(value, depth = 0) {
@@ -115,12 +140,14 @@
       const url = request?.url || String(input);
       const method = init.method || request?.method || 'GET';
       const body = init.body;
+      observeRequest(url, body);
       const response = await previousFetch(input, init);
 
       if (relevant(url)) {
         try {
           const text = await response.clone().text();
           const payload = JSON.parse(text);
+          observeResponse(url, payload);
           emit(url, method, body, payload);
         } catch (_) {}
       }
@@ -142,6 +169,7 @@
 
     XHR.prototype.send = function(body) {
       this.__betterOqbDataBody = body;
+      observeRequest(this.__betterOqbDataUrl || '', body);
       this.addEventListener('loadend', () => {
         const url = this.__betterOqbDataUrl || '';
         if (!relevant(url)) return;
@@ -155,6 +183,7 @@
           } else {
             return;
           }
+          observeResponse(url, payload);
           emit(
             url,
             this.__betterOqbDataMethod || 'GET',
