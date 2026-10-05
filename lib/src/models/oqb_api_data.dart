@@ -192,7 +192,7 @@ class OqbObservedApiState {
 
     if (event.path == '/api/get_usable_packages') {
       return OqbObservedApiState(
-        packages: _parsePackages(event.result),
+        packages: _mergePackages(packages, _parsePackages(event.result)),
         availablePapers: availablePapers,
         presetPapersBySubject: presetPapersBySubject,
         submittedPapersBySubject: submittedPapersBySubject,
@@ -252,6 +252,31 @@ class OqbObservedApiState {
         .whereType<Map>()
         .map((item) => OqbPackageSummary.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
+  }
+
+  static List<OqbPackageSummary> _mergePackages(
+    List<OqbPackageSummary> existing,
+    List<OqbPackageSummary> incoming,
+  ) {
+    if (existing.isEmpty) return incoming;
+    final byId = <int, OqbPackageSummary>{
+      for (final item in existing) item.id: item,
+    };
+
+    return incoming.map((item) {
+      final previous = byId[item.id];
+      if (previous == null || item.topicCounts.isNotEmpty) return item;
+      return OqbPackageSummary(
+        id: item.id,
+        subjectCode: item.subjectCode,
+        publisherCode: item.publisherCode,
+        titleZh: item.titleZh,
+        titleEn: item.titleEn,
+        accessType: item.accessType,
+        topicCounts: previous.topicCounts,
+        topicDifficultyCounts: previous.topicDifficultyCounts,
+      );
+    }).toList(growable: false);
   }
 
   static List<OqbPaperSummary> _parsePapers(dynamic raw) {
