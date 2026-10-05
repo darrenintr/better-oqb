@@ -1,7 +1,7 @@
 name: better_oqb
 description: A responsive Flutter shell for the real OQB web application.
 publish_to: "none"
-version: 0.1.1+2
+version: 0.2.0+3
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_inappwebview: ^6.1.5
+  flutter_widget_from_html_core: ^0.17.4
   webview_cef: ^0.6.2
 
 dev_dependencies:
