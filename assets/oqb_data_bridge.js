@@ -29,17 +29,19 @@
 
   function safeString(value) {
     const text = String(value);
-    try {
-      const parsed = new URL(text, location.href);
-      if (parsed.searchParams.has('sig')) parsed.searchParams.set('sig', '[redacted]');
-      if (parsed.searchParams.has('token')) parsed.searchParams.set('token', '[redacted]');
-      if (parsed.searchParams.has('sesskey')) parsed.searchParams.set('sesskey', '[redacted]');
-      return parsed.href;
-    } catch (_) {
-      return text
-        .replace(/([?&](?:sig|token|sesskey)=)[^&]+/gi, '$1[redacted]')
-        .replace(/((?:token|sesskey|password)\s*[:=]\s*)[^&\s,;]+/gi, '$1[redacted]');
+    if (/^https?:\\/\\//i.test(text)) {
+      try {
+        const parsed = new URL(text);
+        if (parsed.searchParams.has('sig')) parsed.searchParams.set('sig', '[redacted]');
+        if (parsed.searchParams.has('token')) parsed.searchParams.set('token', '[redacted]');
+        if (parsed.searchParams.has('sesskey')) parsed.searchParams.set('sesskey', '[redacted]');
+        return parsed.href;
+      } catch (_) {}
     }
+
+    return text
+      .replace(/([?&](?:sig|token|sesskey)=)[^&]+/gi, '$1[redacted]')
+      .replace(/((?:token|sesskey|password)\\s*[:=]\\s*)[^&\\s,;]+/gi, '$1[redacted]');
   }
 
   function sanitize(value, depth = 0) {
