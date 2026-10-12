@@ -1,344 +1,301 @@
-# OQB observed API map
+# OQB API map
 
-This file records endpoints observed from an authenticated OQB student session.
-It is intentionally limited to endpoints used by the current account and should
-not be treated as a public or stable API contract.
+A complete inventory of the `oqb.edcity.hk` API surface that Better OQB knows
+about, so the app can be built out against the real endpoints. It merges:
 
-Never persist or export the OQB `token` or trial `sesskey`. Better OQB should
-keep them inside the authenticated WebView / same-origin JavaScript context.
+1. the endpoints Better OQB **calls** (allow-listed in
+   `assets/oqb_api_client.js` and built in `lib/src/services/oqb_api_requests.dart`),
+2. the endpoints Better OQB **observes** OQB's own page making
+   (`assets/oqb_data_bridge.js`, `assets/oqb_network_probe.js`), and
+3. request/response shapes captured from an authenticated student session and
+   from the public static files.
 
-## Core endpoints
+It is scoped to what one student account can see. It is **not** a public or
+stable contract: paths, fields and envelopes can change without notice, and
+teacher/admin accounts expose more.
 
-| Endpoint | Method | Observed body | Purpose |
-| --- | --- | --- | --- |
-| `/public/meta.json` | GET | none | Static metadata: subjects, topics, subtopics, difficulties, publishers and school levels. |
-| `/api/get_user_meta` | POST | `app=OQB&token=...` | Current role/context, academic year, subject academic years and account limits. |
-| `/api/get_usable_packages` | POST | `app=OQB&token=...&opts[stat]=1&opts[function_type]=question_attempt.compose.view` | Packages/question banks the authenticated user may access, plus topic/difficulty counts. |
-| `/api/load_papers` | POST | `app=OQB&token=...&criteria[to_submit]=1` | Papers currently available for the user to attempt/resume. |
-| `/api/load_papers` | POST | `app=OQB&token=...&criteria[preset]=1&criteria[subject_code]=econ` | Preset/teacher-provided paper templates for a subject. |
-| `/api/load_submitted_papers` | POST | `app=OQB&token=...&criteria[subject_code]=econ` | Submitted attempts for a subject, including paper/trial IDs, score and review availability. |
-| `/api/load_paper` | POST | `app=OQB&token=...&id={paperId}` | Paper metadata and ordered question IDs. |
-| `/api/load_paper` | POST | `app=OQB&token=...&id={paperId}&opts[with_content]=1&opts[with_trials]=1&opts[with_trial_questions]=1&opts[with_stat]=1` | Detailed post-submission paper, question, trial and statistics data. |
-| `/api/search_questions` | POST | `app=OQB&token=...&criteria[...]&opts[rand]=1&opts[limit]=40` | Search the authenticated question bank by publisher, subject, NSS flag, language, topic and other criteria. |
-| `/api/search_questions` | POST | same criteria with `opts[count]=1` | Count matching questions without loading the full records. |
-| `/api/save_paper` | POST | `app=OQB&token=...&id=0&subject_code=econ&published=1&mode_review=test&title=...&time_allowed=120&paper_question[0][question_id]={questionId}` | Create a user paper from selected question IDs. |
-| `/api/start_trial` | POST | `app=OQB&token=...&id={paperId}` | Start or resume a trial and return the trial plus full question records. |
-| `/api/start_trial` | POST | `app=OQB&token=...&id={paperId}&opts[review]=1` | Load an already submitted attempt for review, including marking/model-answer fields. |
-| `/api/save_trial` | POST | see below | Save answers/progress or submit the active trial. |
-| `/api/get_user_question_stat` | POST | `app=OQB&token=...&criteria[subject_code]=econ` | Per-topic/per-difficulty attempt statistics for the user. |
+> **Secrets.** Never persist or export the OQB `token` or a trial `sesskey`.
+> They stay inside the authenticated WebView / same-origin JavaScript closure
+> (`oqb_api_client.js`). Signed asset URLs (`?sig=...`) are short-lived — render
+> and discard; never store the signature.
 
-## Question search
+## Conventions
 
-An observed HKEAA Economics Topic 5 search used:
+- **Origin:** every call is same-origin on `https://oqb.edcity.hk`.
+- **Auth:** `/api/*` is `POST` with
+  `Content-Type: application/x-www-form-urlencoded`. The client always adds
+  `app=OQB` and `token=<session token>`; trial writes also add
+  `trial_id` and `sesskey`. `/public/*` is unauthenticated `GET`.
+- **Envelope:** `/api/*` returns `{"success": true, "result": ...}` on success
+  and `{"success": false, "error": {"code", "desc", "detail"}}` on failure.
+  `/public/meta.json` is a bare JSON object (no envelope).
+- **Legend:** **called** = Better OQB issues it; **observed** = only seen from
+  OQB's own page (passively captured, not yet issued by Better OQB).
+
+## Endpoint summary
+
+| Endpoint | Method | Auth | Status | Purpose |
+| --- | --- | --- | --- | --- |
+| `/public/meta.json` | GET | no | called | Static reference data: subjects, topics, subtopics, difficulties, publishers, key-stage and school levels. |
+| `/api/get_user_meta` | POST | yes | called | Current role/context, academic year, per-subject academic years, account limits. |
+| `/api/get_usable_packages` | POST | yes | called | Question banks the account may use, with per-topic / per-difficulty counts. |
+| `/api/load_papers` | POST | yes | called | Papers to attempt/resume (`to_submit`) or preset/teacher templates (`preset`). |
+| `/api/load_submitted_papers` | POST | yes | called | Submitted attempts for a subject (paper id, trial id, score, review flag). |
+| `/api/load_paper` | POST | yes | called | Paper metadata + ordered question ids; detailed post-submission data with `opts[with_*]`. |
+| `/api/search_questions` | POST | yes | called | Search/count the question bank by publisher, subject, topic, language, NSS, etc. |
+| `/api/start_trial` | POST | yes | called | Start/resume an attempt (or load a submitted one for review). Returns the trial `sesskey`. |
+| `/api/save_trial` | POST | yes | called | Save answers/progress (`opts[submit]=0`) or submit the attempt (`opts[submit]=1`). |
+| `/api/get_user_question_stat` | POST | yes | called | Per-topic / per-difficulty attempt statistics for the user. |
+| `/api/save_paper` | POST | yes | observed | Create a user paper from selected question ids (composition stays in the original OQB UI for now). |
+| `/api/get_teachers` | POST | yes | observed | Teacher roster lookup. Noise for a student; explicitly excluded from the probe/inspector. |
+
+Static / PWA files that are also publicly exposed (not data APIs):
+`/manifest.json`, `/service-worker.js`, `/robots.txt`. The SPA and its assets
+(`/js/*`, `/css/*`) are served only to an authenticated session. Login runs on
+the EdCity CAS SSO at `wapps1.hkedcity.net/cas/...` (OAuth2, Cloudflare
+Turnstile) — out of scope for the API; Better OQB defers to the real page for it.
+
+---
+
+## Public reference data
+
+### `GET /public/meta.json`  (called)
+
+No auth, no body, no envelope — a bare object. Verified top-level keys:
+
+| Key | Item fields | Notes |
+| --- | --- | --- |
+| `difficulties` | `code`, `desc_zh`, `desc_en` | `0 Mixed, 1 Easy, 2 Normal, 3 Hard`. |
+| `ks_levels` | `code`, `desc_zh`, `desc_en` | Key stages: `KS1 P1-P3 … KS4 S4-S6`. |
+| `publishers` | `code`, `desc_zh`, `desc_en` | e.g. `EPH, HKEAA, HKEJ-IET, HKEP, MERS, KAN-KWWONG, RTHK`. |
+| `sch_levels` | `code`, `desc_zh`, `desc_en` | School levels/forms. |
+| `subjects` | see below | One entry per subject. |
+
+Each `subjects[]` entry:
 
 ```text
-criteria[publisher_code][0]=HKEAA
-criteria[subject_code][0]=econ
-criteria[nss][0]=1
-criteria[lang][0]=en
-criteria[topic_code][0]=econ_5
-opts[rand]=1
-opts[limit]=40
+code            e.g. "econ"   (eng, math, phy, bio, chem, econ, geog, cit, bafs, ths, pe)
+year_start, year_end          academic-year span the subject is valid for
+desc_zh, desc_en              display names
+lang_default                  "en" / "zh"
+create_disabled, sfs_required, report_disabled, legend_score   feature flags (0/1)
+topics[]        { code: "econ_1", desc_zh, desc_en }
+subtopics[]     { code, desc_zh, desc_en }   (empty for some subjects, e.g. econ)
+sfs             { q_num_min, q_num_min_criteria: { random }, ... }   self-formed-study rules
 ```
 
-The corresponding count request used the same criteria with:
+Topic codes are `"{subject}_{n}"` (e.g. `econ_5`) and are the values passed to
+`search_questions` `criteria[topic_code][]`.
+
+---
+
+## Authenticated data endpoints
+
+All are `POST` with at least `app=OQB` and `token=...`.
+
+### `POST /api/get_user_meta`  (called)
+
+Body: `app`, `token`. Returns the user's role/context, academic year, per-subject
+academic years and account limits. Carries identity fields (`user_info`,
+`owner_id`, `*fullname`, `nickname`, …) that the client strips before anything
+leaves the page.
+
+### `POST /api/get_usable_packages`  (called)
+
+Body: `app`, `token`, `opts[stat]=1`,
+`opts[function_type]=question_attempt.compose.view`.
+
+`result` is a list of packages:
 
 ```text
-opts[limit]=
-opts[count]=1
+id, subject_code, publisher_code, title_zh, title_en, access_type[]
+stat.count_topic              { topic_code: count }
+stat.count_topic_difficulty   { topic_code: { difficulty: count } }
 ```
 
-Search results include stable question metadata such as:
+### `POST /api/load_papers`  (called)
+
+Body: `app`, `token`, plus one criteria set:
+
+- **To attempt/resume:** `criteria[to_submit]=1`
+- **Preset/teacher templates:** `criteria[preset]=1&criteria[subject_code]={code}`
+
+`result` is a list of paper rows (see the shared paper-row shape below).
+
+### `POST /api/load_submitted_papers`  (called)
+
+Body: `app`, `token`, `criteria[subject_code]={code}`. `result` is a list of
+submitted paper rows, which additionally carry `trial_id`, `score`,
+`score_full`, `submitted`, `marked`, `can_review`.
+
+**Shared paper-row shape** (`load_papers` / `load_submitted_papers`):
 
 ```text
-id
-qcode
-lang
-description
-subject_code
-publisher_code
-difficulty_code
-eaa_difficulty_code
-year
-question_no
-hkeaa_correct_pc
-nss
-is_dse
-package_id[]
-topic_code[]
-subtopic_code[]
-dimension_code[]
+id / paper_id        paper id  (prefer paper_id; never pass a trial id to start_trial)
+subject_code, title, mode_review ("exercise" | "test"), num_of_questions, time_allowed
+is_teacher
+submitted, marked, can_review          (submitted rows)
+score, score_full, trial_id            (submitted rows)
 ```
 
-The question body and choices are loaded when a trial is started or when
-`load_paper` is called with content enabled.
+### `POST /api/load_paper`  (called)
 
-## Starting a trial
+Body: `app`, `token`, `id={paperId}`. Returns paper metadata and ordered
+question ids. For the detailed post-submission view add:
 
-Observed `start_trial` response shape:
+```text
+opts[with_content]=1
+opts[with_trials]=1
+opts[with_trial_questions]=1
+opts[with_stat]=1
+```
+
+`result` may wrap the paper (`result.paper`) or return it flat, plus a `stat`
+object whose exact layout is not yet captured (kept as a sanitized map).
+
+### `POST /api/search_questions`  (called)
+
+Read-only query of the authenticated question bank.
+
+```text
+criteria[publisher_code][i], criteria[subject_code][i], criteria[nss][i],
+criteria[lang][i], criteria[topic_code][i], criteria[subtopic_code][i], ...
+opts[rand]=1        randomise order
+opts[limit]=40      page size
+```
+
+Count-only: same `criteria`, with `opts[limit]=` (empty) and `opts[count]=1`.
+
+Each result record carries stable question metadata (no body/choices):
+
+```text
+id, qcode, lang, description, subject_code, publisher_code,
+difficulty_code, eaa_difficulty_code, year, question_no,
+hkeaa_correct_pc, nss, is_dse,
+package_id[], topic_code[], subtopic_code[], dimension_code[]
+```
+
+The question body and choices arrive only via `start_trial` or
+`load_paper(with_content)`.
+
+### `POST /api/start_trial`  (called)
+
+Body: `app`, `token`, `id={paperId}`. Add `opts[review]=1` to load an already
+submitted attempt for review (adds marking / model-answer fields). **Captures
+the trial `sesskey`** from the response — required by every `save_trial`.
+
+Response shape:
 
 ```text
 result
-├─ paper
-│  ├─ id
-│  ├─ subject_code
-│  ├─ title
-│  ├─ mode_review
-│  ├─ time_allowed
-│  └─ num_of_questions
-├─ trial
-│  ├─ id
-│  ├─ submitted
-│  ├─ marked
-│  ├─ time_spent
-│  ├─ state
-│  ├─ resume
-│  └─ sesskey
+├─ paper   { id, subject_code, title, mode_review, time_allowed, num_of_questions }
+├─ trial   { id, submitted, marked, time_spent, state, resume, sesskey, score, score_full }
 └─ trial_question[]
-   ├─ id
-   ├─ seq
-   ├─ question_id
-   ├─ status
-   ├─ time_spent
-   ├─ user_input
+   ├─ id            ← the id save_trial uses (NOT question.id)
+   ├─ seq, question_id, status, time_spent, user_input
    └─ question
-      ├─ id
-      ├─ qcode
-      ├─ subject_code
-      ├─ publisher_code
-      ├─ difficulty_code
-      ├─ year
-      ├─ question_no
-      ├─ itype
-      ├─ content_type
-      ├─ content
-      ├─ url
-      ├─ choices[]
-      ├─ topic_code[]
-      ├─ subtopic_code[]
-      └─ dimension_code[]
+      ├─ id, qcode, subject_code, publisher_code, difficulty_code, year, question_no
+      ├─ itype ("choice" | …), content_type, content (HTML), url (signed asset)
+      ├─ choices[]        { content|html|text|label, url|image|img|src }
+      ├─ topic_code[], subtopic_code[], dimension_code[]
+      └─ (review only) suggested_answer "[2]", model_answer, feedback
+         + trial_question.is_correct, trial_question.score
 ```
 
-Before submission, answer-key fields are not present in the normal trial
-response. In review mode, the question record additionally exposes fields such
-as `suggested_answer`, `model_answer`, `feedback`, and the trial question
-contains `is_correct` and `score`.
+`user_input` for MC items is a stringified JSON array of zero-based choice
+indexes, e.g. `"[0]"` = first choice.
 
-Question and choice assets are returned as signed URLs and should be treated as
-short-lived. Do not persist the signatures.
+### `POST /api/save_trial`  (called — save & submit)
 
-## Saving an answer / progress
-
-Observed answer-save request:
+Save answers/progress (the client forces `opts[submit]=0`):
 
 ```text
-POST /api/save_trial
-
-app=OQB
-token=...
+app, token
 trial_id={trialId}
-sesskey=...
-trial_question[0][id]={trialQuestionId}
-trial_question[0][user_input]=[0]
-trial_question[0][time_spent]=1
-trial_question[0][status]=null
-opts[time_spent]=1
+sesskey={sesskey}            ← added by the client from the captured trial
+trial_question[i][id]={trialQuestionId}
+trial_question[i][user_input]=[0]
+trial_question[i][time_spent]=1
+trial_question[i][status]=null      (or "submitted" to reveal/lock the answer — OQB's "Show")
+opts[time_spent]={trialTimeSpent}
 opts[state]={"latestAccessQuestionNo":1}
 opts[submit]=0
 ```
 
-The response changes the trial question status to `attempted`.
-
-For a multiple-choice item, the observed `user_input` is a JSON-like array of
-zero-based choice indexes. For example, `[0]` is the first choice. The review
-response for the captured question used `suggested_answer="[2]"`, meaning the
-third choice was correct.
-
-Better OQB must use the trial-question ID returned by `start_trial`; the
-question-bank question ID alone is not sufficient for `save_trial`.
-
-## Exercise papers: "Show" answer
-
-Captured on an exercise paper (the original page sends the whole trial on
-every save):
-
-- Checking a question with OQB's **Show** button saves it with
-  `trial_question[i][status]=submitted`; unchecked questions keep `null`.
-- Every `save_trial` response echoes `result.trial_question[]` with the
-  answer key, whether or not a question was checked:
+Every `save_trial` response echoes `result.trial_question[]` **with the answer
+key**, whether or not a question was checked:
 
 ```text
-result.trial_question[]
-├─ id                 trial question id (string)
-├─ user_input, time_spent, status ("attempted", "" …)
-├─ question_id, trial_id, parent_id, num_of_children, children
-├─ suggested_answer   e.g. "[1]" = second choice
-├─ suggested_score
-├─ itype              "choice"
-└─ manual_mark, case_sensitive, max_match, abba_group, aabb_group, abcd_group
+id, user_input, time_spent, status,
+question_id, trial_id, parent_id, num_of_children, children,
+suggested_answer "[1]", suggested_score, itype,
+manual_mark, case_sensitive, max_match, abba_group, aabb_group, abcd_group
 ```
 
-Better OQB keeps that key in memory for the attempt and only displays it for
-a question after the learner pressed "Show answer", which sends the same
-`status=submitted` save. A checked question's answer is then locked.
+Better OQB keeps that key in memory and only reveals a question's answer after
+the learner presses **Show answer** (which sends `status=submitted` for that
+item and locks it). Exercise papers (`mode_review=exercise`) have Show; test
+papers do not.
 
-## Submitting a trial
+**Submit** uses the same endpoint with the latest answers/state and
+`opts[submit]=1`. A successful submit returns `{"success":true,"result":true}`.
+Submission must only ever be reached from an explicit, confirmed user action —
+never automatically.
 
-Submission uses the same `/api/save_trial` endpoint with the latest answers
-and progress state, but:
+### `POST /api/get_user_question_stat`  (called)
+
+Body: `app`, `token`, `criteria[subject_code]={code}`. Per-topic /
+per-difficulty attempt statistics for the user.
+
+---
+
+## Observed-only endpoints (not yet issued by Better OQB)
+
+### `POST /api/save_paper`  (observed)
+
+Create a user paper from selected question ids. Captured body:
 
 ```text
-opts[submit]=1
+app, token
+id=0                 (0 = create new)
+subject_code=econ
+published=1
+mode_review=test
+title=...
+time_allowed=120
+paper_question[0][question_id]={questionId}   (one per selected question)
 ```
 
-The captured successful submission returned:
+Paper composition currently stays in the original OQB UI
+(`catalog_view.dart`). This is the endpoint to drive if/when Better OQB builds
+its own paper-composer.
 
-```json
-{"success":true,"result":true}
-```
+### `POST /api/get_teachers`  (observed)
 
-Do not call this automatically. Submission must remain an explicit user action.
+Teacher roster lookup made by OQB's own page. Irrelevant to a student flow and
+intentionally filtered out of the network probe and inspector
+(`oqb_network_probe.js`, `oqb_network_event.dart`).
 
-## Review / report flow
+---
 
-After submission, the observed sequence was:
+## Capturing more endpoints
 
-```text
-load_submitted_papers(subject)
-        ↓
-start_trial(id=paperId, opts[review]=1)
-        ↓
-load_paper(
-  id=paperId,
-  with_content=1,
-  with_trials=1,
-  with_trial_questions=1,
-  with_stat=1
-)
-```
+Better OQB ships a live capture pipeline — the fastest way to discover
+endpoints this map does not yet cover:
 
-This exposes:
+- **`assets/oqb_network_probe.js`** wraps `fetch`, `XMLHttpRequest`,
+  `navigator.sendBeacon` and `PerformanceObserver`, and reports **every**
+  same-origin `/api/*` and `/public/*` request (method, URL, status, redacted
+  request/response previews) to Flutter. Secrets (`token`, `sesskey`, `sig`,
+  cookies, identity fields) are redacted at the source.
+- **`assets/oqb_data_bridge.js`** additionally parses a curated allow-list of
+  data endpoints and folds their responses into the in-app catalog.
+- **`lib/src/widgets/oqb_network_inspector.dart`** surfaces the captured events
+  in the running app.
 
-- submitted/marked status and score
-- per-question user input and correctness
-- suggested/model answers
-- per-topic statistics
-- per-difficulty statistics
-- full paper totals and time spent
-
-## Package access
-
-`get_usable_packages` returned the authenticated banks that the account can
-use. The HKEAA packages are marked with `access_type=["school"]`; some other
-publishers are marked `["free"]`.
-
-For Better OQB, this endpoint should drive the subject/bank list instead of a
-hard-coded subject list.
-
-With `opts[stat]=1`, each package also includes counts such as:
-
-```text
-stat.count_topic
-stat.count_subtopic
-stat.count_topic_difficulty
-```
-
-Those counts are suitable for showing topic availability and difficulty filters
-without searching the entire bank first.
-
-## Architecture implication
-
-Better OQB should no longer use DOM scraping as the primary data source.
-
-Preferred path:
-
-```text
-hidden authenticated WebView
-        ↓
-same-origin JS API adapter
-        ↓
-OQB JSON endpoints
-        ↓
-sanitized Dart models
-        ↓
-Flutter UI
-```
-
-Keep the OQB authentication token and trial `sesskey` inside the
-WebView/JavaScript context. Do not persist them in Dart storage. The Flutter
-layer should receive only the parsed data it needs.
-
-`start_trial` may create an attempt, `save_paper` creates server-side data,
-and `save_trial?submit=1` submits work. These endpoints must only run after
-the corresponding explicit user action.
-
-## Better OQB client implementation
-
-How Better OQB uses the endpoints above (see `assets/oqb_api_client.js`,
-`lib/src/services/oqb_api_requests.dart`, `lib/src/services/oqb_repository.dart`):
-
-```text
-Flutter widgets
-  → StudyController / CatalogController
-  → OqbRepository                (typed models, lib/src/models/)
-  → OqbRequests                  (endpoint field layouts, unit tested)
-  → OqbWebViewApiClient          (request ids, timeouts, diagnostics)
-  → window.betterOqbApi.run(id, command, fields)   (inside the WebView)
-  → fetch('/api/...', same-origin, form-urlencoded)
-```
-
-- **Token.** The JS client learns the token from the `token` field of OQB's
-  own same-origin `/api/` requests (forwarded by `oqb_data_bridge.js`), and
-  keeps it in a closure. Only if no request has been seen yet does it look
-  for an obviously named `*token*` key in local/session storage (heuristic;
-  the real storage location has not been captured). Flutter only receives
-  `hasToken: true/false`.
-- **Sesskey.** Captured from `result.trial.sesskey` of any `start_trial`
-  response (OQB's or Better OQB's) and stored per trial id in the closure.
-  A full page reload loses it; Better OQB then resumes the same trial with
-  `start_trial` and retries the save (only if the trial id is unchanged).
-- **Allow-list.** The JS client only runs the commands listed in
-  `COMMANDS` (`getMeta`, `getUserMeta`, `getUsablePackages`, `loadPapers`,
-  `loadSubmittedPapers`, `getUserQuestionStat`, `searchQuestions`,
-  `loadPaper`, `startTrial`, `saveTrial`, `submitTrial`). `saveTrial`
-  always forces `opts[submit]=0`; only the separate `submitTrial` command
-  sends `opts[submit]=1`, and Flutter only issues it after the learner
-  confirms a dialog.
-- **Sanitizing.** Results posted to Flutter have `token`, `sesskey`,
-  `password` and personal identifier keys removed. Signed asset URLs are
-  kept (they are needed to render images) but only held in memory.
-- **Assets.** Images are loaded by Flutter directly; if that fails they are
-  fetched by the WebView (`fetchAsset`, cookies only for same-origin URLs)
-  and returned as a data URL for in-memory rendering.
-
-### Assumptions that a new capture should confirm
-
-These are implemented defensively and isolated in one place each:
-
-| Assumption | Where |
-| --- | --- |
-| A `application/x-www-form-urlencoded` POST is accepted (OQB's own request encoding/headers were not recorded beyond the body). | `oqb_api_client.js` |
-| `time_spent` values are cumulative seconds (we send the server value plus locally elapsed time), not deltas. The capture (`1`/`1` on a fresh trial) fits both readings. | `StudyController._updateFor`, `trialSeconds` |
-| `trial_question[i][status]` is echoed back as the last known status (`null` when unknown, as observed). | `OqbRequests._trialFields` |
-| The submit request carries every answered question (observed: "latest answers and progress state"). | `StudyController.submit` |
-| `save_trial` may echo updated `trial_question` statuses and (exercise papers) `suggested_answer`; anything else in its `result` is ignored. | `OqbRepository._statuses`, `OqbRepository._answerKey` |
-| Exercise papers are any `mode_review` other than `test` (only `test` has been observed; the exercise value was not captured). | `StudyController.isExercise` |
-| OQB locks a question once it was checked (`status=submitted`), so Better OQB does too. | `StudyController.selectChoice` |
-| `choices[]` items are HTML strings, or maps with `content`/`text`/`url`-like keys. | `OqbChoice.fromJson` |
-| `trial.state` may be an object or a JSON string. | `OqbTrial.fromJson` |
-| `/public/meta.json` entries carry a code (`code` or `*_code`) and a name (`title_zh`/`title_en`/`name`…); unknown layouts fall back to raw codes. | `OqbMeta.fromJson` |
-| Error envelopes use `success: false` plus a `message`/`error`/`msg` string. | `OqbWebViewApiClient._errorText` |
-| Detailed `load_paper` exposes `stat` at `result.stat` or `result.paper.stat`; its inner layout is not interpreted yet. Review breakdowns are computed locally from `is_correct`, `topic_code[]` and `difficulty_code`. | `OqbPaperDetail`, `OqbReview` |
-| `get_user_question_stat` result layout is not interpreted yet (repository returns the sanitized map). | `OqbRepository.getUserQuestionStat` |
-| Starting a *preset* paper (`load_papers criteria[preset]=1`) is not mapped; Better OQB sends the learner to the original page for it. | `CatalogView` |
-| Non-multiple-choice `itype` values and long-answer `user_input` formats are not mapped; such questions are shown read-only with an "answer in original OQB" notice and their existing input is echoed back unchanged. | `OqbUserInput`, `StudyView` |
-
-## Still unknown / needs another focused capture
-
-The main study flow is now mapped. Remaining optional behavior:
-
-- bookmark/favourite question
-- annotation/highlight/note actions, if OQB supports them
-- deleting/renaming a user-created paper
-- retrying an exercise / creating another trial when `max_trial_no` permits
-- any long-answer/manual-marking-specific payloads
+To extend the map: sign in on the real OQB page inside Better OQB, exercise a
+flow (compose a paper, open a report, browse a new subject), then read the
+inspector. Add any new endpoint here with its captured body and a sanitized
+response shape before wiring it into `oqb_api_client.js` (allow-list) and
+`oqb_api_requests.dart` (typed builder). Do not add an endpoint that has not
+been observed, and never widen the secret-redaction rules.
