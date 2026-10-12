@@ -5,6 +5,7 @@ import '../controllers/study_controller.dart';
 import '../models/oqb_meta.dart';
 import '../models/oqb_review.dart';
 import '../models/oqb_trial.dart';
+import '../services/ask_ai.dart';
 import '../theme/kiln_theme.dart';
 import '../widgets/oqb_html.dart';
 import '../widgets/question_navigator.dart';
@@ -27,6 +28,7 @@ class StudyView extends StatefulWidget {
     this.onSubmit,
     this.review,
     this.onOpenInspector,
+    this.onAskAi,
   });
 
   final StudyController controller;
@@ -40,6 +42,10 @@ class StudyView extends StatefulWidget {
 
   /// Present in review mode; drives the score summary.
   final OqbReview? review;
+
+  /// Opens a wrong answer's explanation prompt in an AI chat. Defaults to
+  /// [openInChatGpt]; tests inject a fake.
+  final Future<bool> Function(AskAiPrompt prompt)? onAskAi;
 
   @override
   State<StudyView> createState() => _StudyViewState();
@@ -167,6 +173,16 @@ class _StudyViewState extends State<StudyView> {
     );
   }
 
+  Future<void> _askAi(AskAiPrompt prompt) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final opened = await (widget.onAskAi ?? openInChatGpt)(prompt);
+    messenger?.showSnackBar(SnackBar(
+      content: Text(opened
+          ? 'Opening ChatGPT. The question is also on your clipboard.'
+          : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -195,6 +211,7 @@ class _StudyViewState extends State<StudyView> {
                 twoColumns: twoColumns,
                 compact: compact,
                 onOpenOriginal: widget.onOpenOriginal,
+                onAskAi: _askAi,
               );
 
               return ColoredBox(
@@ -669,6 +686,7 @@ class _QuestionBody extends StatelessWidget {
     required this.twoColumns,
     required this.compact,
     required this.onOpenOriginal,
+    required this.onAskAi,
   });
 
   final StudyController controller;
@@ -677,6 +695,7 @@ class _QuestionBody extends StatelessWidget {
   final bool twoColumns;
   final bool compact;
   final VoidCallback onOpenOriginal;
+  final Future<void> Function(AskAiPrompt prompt) onAskAi;
 
   @override
   Widget build(BuildContext context) {
@@ -688,7 +707,12 @@ class _QuestionBody extends StatelessWidget {
       compact: compact,
       onOpenOriginal: onOpenOriginal,
     );
-    final answers = _AnswerSection(controller: controller, question: question);
+    final answers = _AnswerSection(
+      controller: controller,
+      question: question,
+      meta: meta,
+      onAskAi: onAskAi,
+    );
 
     if (twoColumns) {
       return SelectionArea(
@@ -832,10 +856,17 @@ class _Notice extends StatelessWidget {
 }
 
 class _AnswerSection extends StatelessWidget {
-  const _AnswerSection({required this.controller, required this.question});
+  const _AnswerSection({
+    required this.controller,
+    required this.question,
+    required this.meta,
+    required this.onAskAi,
+  });
 
   final StudyController controller;
   final OqbTrialQuestion question;
+  final OqbMeta meta;
+  final Future<void> Function(AskAiPrompt prompt) onAskAi;
 
   @override
   Widget build(BuildContext context) {
@@ -895,7 +926,33 @@ class _AnswerSection extends StatelessWidget {
           ),
         if (controller.canShowAnswer(question)) _showAnswerButton(context),
         if (review) ..._reviewExtras(context, content),
+        if (key != null && key.isNotEmpty && !answer.sameAs(key)) _askAiButton(content, answer, key),
       ],
+    );
+  }
+
+  /// Shown once the correct answer is known and the learner's answer is
+  /// wrong (or missing): opens ChatGPT with the question, the options, the
+  /// learner's answer and the correct one already in the chat box.
+  Widget _askAiButton(OqbQuestionContent content, OqbUserInput answer, OqbUserInput key) {
+    final prompt = AskAiPrompt.forQuestion(
+      content: content,
+      answer: answer,
+      correct: key,
+      subject: content.subjectCode.isEmpty ? '' : meta.label(content.subjectCode, preferEnglish: true),
+      topic: content.topicCodes.map((code) => meta.label(code, preferEnglish: true)).join(', '),
+    );
+    if (prompt == null) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: OutlinedButton.icon(
+          onPressed: () => onAskAi(prompt),
+          icon: const Icon(Icons.auto_awesome_outlined),
+          label: const Text('Ask ChatGPT why'),
+        ),
+      ),
     );
   }
 

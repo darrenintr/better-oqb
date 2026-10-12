@@ -6,6 +6,7 @@ import 'package:better_oqb/src/models/oqb_review.dart';
 import 'package:better_oqb/src/models/oqb_trial.dart';
 import 'package:better_oqb/src/screens/catalog_view.dart';
 import 'package:better_oqb/src/screens/study_view.dart';
+import 'package:better_oqb/src/services/ask_ai.dart';
 import 'package:better_oqb/src/services/oqb_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,6 +161,66 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('Choice C.*correct answer')), findsOneWidget);
   });
 
+  testWidgets('a wrong exercise answer can be asked about in ChatGPT', (tester) async {
+    await setSize(tester, const Size(1180, 820));
+    transport.handler = (request) => exerciseSaveResult(count: 2);
+    final controller = StudyController(OqbRepository(transport), saveDelay: Duration.zero)
+      ..attach(OqbTrialSession.fromResult(startTrialResult(count: 2, modeReview: 'exercise')));
+    addTearDown(controller.dispose);
+    final asked = <AskAiPrompt>[];
+
+    await tester.pumpWidget(host(StudyView(
+      controller: controller,
+      meta: OqbMeta.empty,
+      onExit: () {},
+      onOpenOriginal: () {},
+      onSubmit: () async {},
+      onAskAi: (prompt) async {
+        asked.add(prompt);
+        return true;
+      },
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Ask ChatGPT why'), findsNothing, reason: 'answer not shown yet');
+
+    await tester.tap(find.text('A0', findRichText: true));
+    await tester.tap(find.text('Show answer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ask ChatGPT why'));
+    await tester.pumpAndSettle();
+
+    expect(asked, hasLength(1));
+    expect(asked.single.text, contains('Question 1'));
+    expect(asked.single.text, contains('My answer: A (A0)'));
+    expect(asked.single.text, contains('Correct answer: C (C0)'));
+    expect(find.textContaining('Opening ChatGPT'), findsOneWidget);
+  });
+
+  testWidgets('a correct exercise answer has no ChatGPT button', (tester) async {
+    await setSize(tester, const Size(1180, 820));
+    transport.handler = (request) => exerciseSaveResult(count: 2);
+    final controller = StudyController(OqbRepository(transport), saveDelay: Duration.zero)
+      ..attach(OqbTrialSession.fromResult(startTrialResult(count: 2, modeReview: 'exercise')));
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(host(StudyView(
+      controller: controller,
+      meta: OqbMeta.empty,
+      onExit: () {},
+      onOpenOriginal: () {},
+      onSubmit: () async {},
+      onAskAi: (prompt) async => true,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('C0', findRichText: true));
+    await tester.tap(find.text('Show answer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Correct'), findsOneWidget);
+    expect(find.text('Ask ChatGPT why'), findsNothing);
+  });
+
   testWidgets('submit requires confirmation', (tester) async {
     await setSize(tester, const Size(1180, 820));
     final controller = attached(count: 3);
@@ -275,6 +336,10 @@ void main() {
       await tester.tap(find.text('A0', findRichText: true));
       await tester.pump();
       expect(controller.answerFor(controller.current!).single, 2, reason: 'read-only');
+      expect(find.text('Ask ChatGPT why'), findsNothing, reason: 'Q1 is correct');
+      controller.next();
+      await tester.pumpAndSettle();
+      expect(find.text('Ask ChatGPT why'), findsOneWidget, reason: 'Q2 answered A, key is C');
       expect(transport.requests, isEmpty);
       expect(tester.takeException(), isNull);
     });
