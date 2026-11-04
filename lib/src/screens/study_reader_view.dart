@@ -180,7 +180,13 @@ class _StudyViewState extends State<StudyView> {
     try {
       final handler = widget.onAskAi;
       if (handler != null) {
-        await handler(prompt);
+        final opened = await handler(prompt);
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(opened
+              ? 'Opening ChatGPT. The question is also on your clipboard.'
+              : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
+        ));
         return;
       }
       // Snapshot this question and answer before any asynchronous image work.
