@@ -6,6 +6,7 @@ import '../models/oqb_meta.dart';
 import '../models/oqb_review.dart';
 import '../models/oqb_trial.dart';
 import '../services/ask_ai.dart';
+import '../services/ask_ai_images.dart';
 import '../theme/kiln_theme.dart';
 import '../widgets/oqb_html.dart';
 import '../widgets/question_navigator.dart';
@@ -43,8 +44,7 @@ class StudyView extends StatefulWidget {
   /// Present in review mode; drives the score summary.
   final OqbReview? review;
 
-  /// Opens a wrong answer's explanation prompt in an AI chat. Defaults to
-  /// [openInChatGpt]; tests inject a fake.
+  /// Optional custom AI handler; tests inject a fake.
   final Future<bool> Function(AskAiPrompt prompt)? onAskAi;
 
   @override
@@ -53,6 +53,7 @@ class StudyView extends StatefulWidget {
 
 class _StudyViewState extends State<StudyView> {
   final FocusNode _focus = FocusNode(debugLabel: 'study');
+  bool _askingAi = false;
 
   StudyController get _controller => widget.controller;
 
@@ -174,13 +175,49 @@ class _StudyViewState extends State<StudyView> {
   }
 
   Future<void> _askAi(AskAiPrompt prompt) async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final opened = await (widget.onAskAi ?? openInChatGpt)(prompt);
-    messenger?.showSnackBar(SnackBar(
-      content: Text(opened
-          ? 'Opening ChatGPT. The question is also on your clipboard.'
-          : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
-    ));
+    if (_askingAi) return;
+    _askingAi = true;
+    try {
+      final handler = widget.onAskAi;
+      if (handler != null) {
+        await handler(prompt);
+        return;
+      }
+      // Snapshot this question and answer before any asynchronous image work.
+      final question = _controller.current;
+      final content = question?.question;
+      if (question != null && content != null && questionNeedsImageShare(content)) {
+        final correct = _controller.isReadOnly
+            ? content.suggestedAnswer
+            : _controller.answerKeyFor(question);
+        if (correct == null || correct.isEmpty) return;
+        await showQuestionImageShare(context,
+          question: content,
+          answer: _controller.answerFor(question),
+          correct: correct,
+          prompt: prompt,
+          loader: OqbAssetScope.of(context),
+        );
+        // Sharing/cancellation is handled by that page. Do not claim that a
+        // text URL uploaded images, or show a failure when the user cancels.
+        return;
+      }
+      final opened = await openInChatGpt(prompt);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(opened
+            ? 'Opening ChatGPT. The question is also on your clipboard.'
+            : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
+      ));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Could not prepare the question for AI. Please retry.'),
+        ));
+      }
+    } finally {
+      _askingAi = false;
+    }
   }
 
   @override
@@ -932,8 +969,7 @@ class _AnswerSection extends StatelessWidget {
   }
 
   /// Shown once the correct answer is known and the learner's answer is
-  /// wrong (or missing): opens ChatGPT with the question, the options, the
-  /// learner's answer and the correct one already in the chat box.
+  /// wrong (or missing). Image questions use a real image attachment flow.
   Widget _askAiButton(OqbQuestionContent content, OqbUserInput answer, OqbUserInput key) {
     final prompt = AskAiPrompt.forQuestion(
       content: content,
