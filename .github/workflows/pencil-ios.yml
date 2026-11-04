@@ -1,0 +1,60 @@
+name: iOS Pencil preview
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pencil-ios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test --reporter expanded
+
+  ios:
+    name: iOS unsigned IPA
+    needs: quality
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          cache: true
+      - name: Generate iOS runner
+        run: flutter create --platforms=ios .
+      - run: flutter pub get
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/ios/iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../better-oqb-ios-unsigned.ipa Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-oqb-ios-unsigned
+          path: build/better-oqb-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

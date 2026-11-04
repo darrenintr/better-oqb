@@ -3,34 +3,22 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/oqb_trial.dart';
 
-/// Builds a "help me understand this question" prompt for an external chat
-/// assistant (ChatGPT) from a question the learner got wrong.
-///
-/// Only the question text, the choices, the learner's answer and the correct
-/// answer are included. Signed asset URLs are never included: they are
-/// short-lived credentials for OQB's storage. Images are mentioned so the
-/// learner knows to attach a screenshot.
+/// Only explicitly selected question data goes to ChatGPT. OQB asset URLs,
+/// session tokens, cookies and local handwriting are never attached.
 class AskAiPrompt {
   const AskAiPrompt(this.text);
-
-  /// ChatGPT's `?q=` link pre-fills the chat box. Very long links can be
-  /// rejected or truncated, so the prompt is also copied to the clipboard and
-  /// the link carries a shortened prompt when needed.
   static const int maxLinkPromptLength = 6000;
-
   final String text;
 
   Uri get chatGptUri {
-    var prompt = text;
-    if (prompt.length > maxLinkPromptLength) {
-      prompt = '${prompt.substring(0, maxLinkPromptLength)}\n…\n'
-          '(The full question is on my clipboard; I will paste it.)';
-    }
-    return Uri.https('chatgpt.com', '/', <String, String>{'q': prompt});
+    final complete = Uri.https('chatgpt.com', '/', {'q': text});
+    if (complete.toString().length <= maxLinkPromptLength) return complete;
+    return Uri.https('chatgpt.com', '/', {
+      'q': 'The full question, options, my answer and the correct answer are '
+          'on my clipboard. I will paste them next. Please wait for the complete question.',
+    });
   }
 
-  /// Returns null when the question cannot be described (no content) or no
-  /// correct answer is known.
   static AskAiPrompt? forQuestion({
     required OqbQuestionContent? content,
     required OqbUserInput answer,
@@ -39,51 +27,48 @@ class AskAiPrompt {
     String topic = '',
   }) {
     if (content == null || correct == null || correct.isEmpty) return null;
-
     final body = htmlToPlainText(content.displayContent);
-    final hasImage = content.url.isNotEmpty ||
-        RegExp(r'<img\b', caseSensitive: false).hasMatch(content.content);
-
+    final images = content.url.isNotEmpty || _hasImage(content.content) ||
+        content.choices.any((c) => c.imageUrl.isNotEmpty || _hasImage(c.html));
     final buffer = StringBuffer()
-      ..writeln('I got this multiple-choice question wrong. '
-          'Please explain step by step why the correct answer is right, '
-          'why my answer is wrong, and the key concept I should review.')
+      ..writeln('I got this multiple-choice question wrong. Please explain step by step '
+          'why the correct answer is right, why my answer is wrong, and the key concept I should review.')
+      ..writeln('請用繁體中文解釋，保留題目的英文術語。數學題請列出完整計算步驟；'
+          'ICT 程式題請逐步追蹤程式，列出每輪變數值、條件判斷及輸出。'
+          '如果提供的答案與題目不一致，請指出，不要為答案強行辯護。')
       ..writeln();
-    final context = [
-      if (subject.isNotEmpty) 'Subject: $subject',
-      if (topic.isNotEmpty) 'Topic: $topic',
-      if (content.year.isNotEmpty)
-        'Source: ${content.publisherCode.isEmpty ? '' : '${content.publisherCode} '}'
-            '${content.year}${content.questionNo.isEmpty ? '' : ' Q${content.questionNo}'}',
-    ];
-    for (final line in context) {
-      buffer.writeln(line);
+    if (subject.isNotEmpty) buffer.writeln('Subject: $subject');
+    if (topic.isNotEmpty) buffer.writeln('Topic: $topic');
+    if (content.year.isNotEmpty) {
+      buffer.writeln('Source: ${content.publisherCode.isEmpty ? '' : '${content.publisherCode} '}'
+          '${content.year}${content.questionNo.isEmpty ? '' : ' Q${content.questionNo}'}');
     }
-    if (context.isNotEmpty) buffer.writeln();
-
-    buffer.writeln('Question:');
-    buffer.writeln(body.isEmpty ? '(The question is an image.)' : body);
-    if (hasImage) {
-      buffer.writeln('(The question has a diagram/image; I will attach a screenshot if needed.)');
+    buffer
+      ..writeln()
+      ..writeln('Question:')
+      ..writeln(body.isEmpty ? '(The question is an image.)' : body);
+    if (images) {
+      buffer.writeln('(The question/options include an image; I will attach a screenshot. '
+          'Do not guess unseen image content.)');
     }
     buffer.writeln();
-
     if (content.choices.isNotEmpty) {
       buffer.writeln('Options:');
       for (final choice in content.choices) {
-        final choiceText = htmlToPlainText(choice.displayHtml);
-        final label = choiceText.isNotEmpty
-            ? choiceText
-            : (choice.imageUrl.isNotEmpty ? '(image)' : '(no text)');
-        buffer.writeln('${choice.label}. $label');
+        final text = htmlToPlainText(choice.displayHtml);
+        final value = text.isNotEmpty ? text :
+            (choice.imageUrl.isNotEmpty || _hasImage(choice.html) ? '(image)' : '(no text)');
+        buffer.writeln('${choice.label}. $value');
       }
       buffer.writeln();
     }
-
-    buffer.writeln('My answer: ${_describe(answer, content)}');
-    buffer.write('Correct answer: ${_describe(correct, content)}');
+    buffer
+      ..writeln('My answer: ${_describe(answer, content)}')
+      ..write('Correct answer: ${_describe(correct, content)}');
     return AskAiPrompt(buffer.toString());
   }
+
+  static bool _hasImage(String html) => RegExp(r'<img\b', caseSensitive: false).hasMatch(html);
 
   static String _describe(OqbUserInput input, OqbQuestionContent content) {
     if (input.isEmpty) return '(not answered)';
@@ -91,76 +76,68 @@ class AskAiPrompt {
     return input.choices.map((index) {
       if (index < 0 || index >= content.choices.length) return choiceLabel(index);
       final choice = content.choices[index];
-      final choiceText = htmlToPlainText(choice.displayHtml);
-      return choiceText.isEmpty ? choice.label : '${choice.label} ($choiceText)';
+      final text = htmlToPlainText(choice.displayHtml);
+      return text.isEmpty ? choice.label : '${choice.label} ($text)';
     }).join(', ');
   }
 }
 
-/// Converts OQB question HTML to readable plain text: block elements become
-/// line breaks, table cells are separated by " | ", tags are removed and
-/// common entities decoded.
+/// Keeps preformatted code indentation, table cells and common math entities.
 String htmlToPlainText(String html) {
   if (html.trim().isEmpty) return '';
-  var text = html
-      .replaceAll(RegExp(r'<(script|style)\b[^>]*>.*?</\1>', caseSensitive: false, dotAll: true), '')
+  var text = html.replaceAll(
+    RegExp(r'<(script|style)\b[^>]*>.*?</\1>', caseSensitive: false, dotAll: true), '',
+  );
+  final preformatted = <String>[];
+  text = text.replaceAllMapped(
+    RegExp(r'<(pre|code)\b[^>]*>(.*?)</\1>', caseSensitive: false, dotAll: true),
+    (match) {
+      final value = match[2]!
+          .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+          .replaceAll(RegExp(r'<[^>]*>'), '');
+      preformatted.add(_decodeEntities(value).replaceAll('\r\n', '\n'));
+      return '\n@@OQB_CODE_${preformatted.length - 1}@@\n';
+    },
+  );
+  text = text
       .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
       .replaceAll(RegExp(r'</(td|th)>', caseSensitive: false), ' | ')
       .replaceAll(RegExp(r'</(p|div|tr|li|h[1-6]|table)>', caseSensitive: false), '\n')
       .replaceAll(RegExp(r'<li\b[^>]*>', caseSensitive: false), '• ')
       .replaceAll(RegExp(r'<sup\b[^>]*>', caseSensitive: false), '^')
       .replaceAll(RegExp(r'<[^>]*>'), '');
-  text = _decodeEntities(text);
-  return text
-      .split('\n')
-      .map((line) => line.replaceAll(RegExp(r'[ \t ]+'), ' ').replaceAll(RegExp(r'\s*\|\s*$'), '').trim())
-      .where((line) => line.isNotEmpty)
-      .join('\n');
+  text = _decodeEntities(text).split('\n')
+      .map((line) => line.replaceAll(RegExp(r'[ \t\u00a0]+'), ' ')
+          .replaceAll(RegExp(r'\s*\|\s*$'), '').trim())
+      .where((line) => line.isNotEmpty).join('\n');
+  for (var i = 0; i < preformatted.length; i++) {
+    text = text.replaceAll('@@OQB_CODE_$i@@', preformatted[i]);
+  }
+  return text;
 }
 
-const Map<String, String> _entities = <String, String>{
-  'nbsp': ' ',
-  'amp': '&',
-  'lt': '<',
-  'gt': '>',
-  'quot': '"',
-  'apos': "'",
-  'times': '×',
-  'divide': '÷',
-  'minus': '−',
-  'plusmn': '±',
-  'le': '≤',
-  'ge': '≥',
-  'ne': '≠',
-  'deg': '°',
-  'hellip': '…',
-  'ndash': '–',
-  'mdash': '—',
-  'lsquo': '‘',
-  'rsquo': '’',
-  'ldquo': '“',
-  'rdquo': '”',
+const _entities = <String, String>{
+  'nbsp': ' ', 'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'",
+  'times': '×', 'divide': '÷', 'minus': '−', 'plusmn': '±',
+  'le': '≤', 'ge': '≥', 'ne': '≠', 'deg': '°', 'hellip': '…',
+  'ndash': '–', 'mdash': '—', 'lsquo': '‘', 'rsquo': '’', 'ldquo': '“', 'rdquo': '”',
 };
 
-String _decodeEntities(String text) {
-  return text.replaceAllMapped(RegExp(r'&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);'), (match) {
+String _decodeEntities(String text) => text.replaceAllMapped(
+  RegExp(r'&(#x[0-9a-f]+|#\d+|[a-z]+);', caseSensitive: false),
+  (match) {
     final name = match[1]!;
-    if (name.startsWith('#x') || name.startsWith('#X')) {
-      final code = int.tryParse(name.substring(2), radix: 16);
-      return code == null ? match[0]! : String.fromCharCode(code);
+    if (!name.startsWith('#')) return _entities[name.toLowerCase()] ?? match[0]!;
+    final hexadecimal = name.toLowerCase().startsWith('#x');
+    final code = int.tryParse(name.substring(hexadecimal ? 2 : 1), radix: hexadecimal ? 16 : 10);
+    if (code == null || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+      return match[0]!;
     }
-    if (name.startsWith('#')) {
-      final code = int.tryParse(name.substring(1));
-      return code == null ? match[0]! : String.fromCharCode(code);
-    }
-    return _entities[name.toLowerCase()] ?? match[0]!;
-  });
-}
+    return String.fromCharCode(code);
+  },
+);
 
-/// Opens [prompt] in ChatGPT in the system browser (or the ChatGPT app when
-/// it handles chatgpt.com links). The prompt is copied to the clipboard first
-/// so it can be pasted if the chat box is not pre-filled. Returns whether the
-/// link could be opened.
+/// URL prefill depends on the browser/app; full clipboard text is the fallback.
 Future<bool> openInChatGpt(AskAiPrompt prompt) async {
   await Clipboard.setData(ClipboardData(text: prompt.text));
   try {

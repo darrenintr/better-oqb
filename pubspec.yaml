@@ -1,7 +1,7 @@
 name: better_oqb
 description: A responsive Flutter shell for the real OQB web application.
 publish_to: "none"
-version: 0.2.0+3
+version: 0.3.0+4
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
@@ -12,6 +12,7 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   flutter_widget_from_html_core: ^0.17.4
   url_launcher: ^6.3.1
+  path_provider: ^2.1.5
   webview_cef: ^0.6.2
 
 dev_dependencies:
@@ -27,7 +28,7 @@ flutter:
     - assets/oqb_api_client.js
     - assets/oqb_data_bridge.js
 
-  # Kiln type: variable fonts, SIL Open Font License (see assets/fonts/OFL-*.txt).
+  # Kiln variable fonts; SIL Open Font License in assets/fonts/.
   fonts:
     - family: Newsreader
       fonts:
