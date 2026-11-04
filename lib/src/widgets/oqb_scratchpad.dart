@@ -253,7 +253,8 @@ class _OqbScratchpadState extends State<OqbScratchpad>
       );
 
   void _down(PointerDownEvent event, double scale) {
-    if (_pointer != null || !_accept(event)) return;
+    // A queued pointer event can outlive a question's scratchpad widget.
+    if (!mounted || _disposed || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
     _activeTool = event.kind == PointerDeviceKind.invertedStylus ? _Tool.eraser : _tool;
     _remember();
@@ -268,7 +269,7 @@ class _OqbScratchpadState extends State<OqbScratchpad>
   }
 
   void _move(PointerMoveEvent event, double scale) {
-    if (event.pointer != _pointer) return;
+    if (!mounted || _disposed || event.pointer != _pointer) return;
     final p = _point(event.localPosition, scale);
     setState(() {
       _dirty = true;
@@ -281,7 +282,9 @@ class _OqbScratchpadState extends State<OqbScratchpad>
   }
 
   void _up(PointerEvent event) {
-    if (event.pointer != _pointer) return;
+    // Flutter can dispatch PointerUp to a disposed listener after navigation.
+    // deactivate()/dispose() already flush any partial stroke to storage.
+    if (!mounted || _disposed || event.pointer != _pointer) return;
     setState(() => _pointer = null);
     unawaited(_save());
   }
