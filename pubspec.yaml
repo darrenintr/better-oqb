@@ -14,7 +14,6 @@ dependencies:
   url_launcher: ^6.3.1
   path_provider: ^2.1.5
   share_plus: 12.0.2
-  cross_file: ^0.3.4+2
   html: ^0.15.6
   webview_cef: ^0.6.2
 

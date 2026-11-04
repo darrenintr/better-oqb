@@ -151,7 +151,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Retry loading images'), findsOneWidget);
     expect(find.textContaining('Nothing was shared.'), findsOneWidget);
-    final share = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Share question image'));
+    final share = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(share.onPressed, isNull);
     expect(tester.takeException(), isNull);
   });

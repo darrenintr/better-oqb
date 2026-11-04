@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -268,8 +267,10 @@ class _QuestionImageSharePageState extends State<QuestionImageSharePage> {
         if (mounted) await _share();
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error is QuestionImageException
-          ? error.message : 'Could not prepare the full question. Nothing was shared. Please retry.');
+      if (mounted) {
+        setState(() => _error = error is QuestionImageException
+            ? error.message : 'Could not prepare the full question. Nothing was shared. Please retry.');
+      }
     }
   }
 
@@ -326,8 +327,10 @@ class _QuestionImageSharePageState extends State<QuestionImageSharePage> {
         sharePositionOrigin: origin,
       ));
     } catch (error) {
-      if (mounted) setState(() => _error = error is QuestionImageException
-          ? error.message : 'Could not export or open sharing. Please retry; no automatic ChatGPT upload was performed.');
+      if (mounted) {
+        setState(() => _error = error is QuestionImageException
+            ? error.message : 'Could not export or open sharing. Please retry; no automatic ChatGPT upload was performed.');
+      }
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
