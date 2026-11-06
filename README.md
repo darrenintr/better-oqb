@@ -40,6 +40,12 @@ https://oqb.edcity.hk/api/...
 - **Exercise papers** have a "Show answer" button, like OQB's own Show:
   it checks the question (`status=submitted`), marks the correct choice and
   locks that answer. Test papers do not have it.
+- **Ask ChatGPT why**: when an answer is wrong (after "Show answer" on an
+  exercise, or in review), a button opens ChatGPT with the question, all
+  options, your answer and the correct answer already in the chat box. The
+  same text is copied to the clipboard in case the box is not pre-filled.
+  Signed image URLs are never included; image questions say so, so you can
+  attach a screenshot.
 - **Submitting** is only possible from a confirmation dialog. It first saves
   any pending answers and refuses to submit if they cannot be saved.
 - **Review** uses `start_trial(opts[review]=1)` and a detailed `load_paper`
