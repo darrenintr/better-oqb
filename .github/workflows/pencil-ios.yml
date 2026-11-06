@@ -50,7 +50,11 @@ jobs:
           python3 -m venv .icon-venv
           .icon-venv/bin/python -m pip install --disable-pip-version-check 'CairoSVG>=2.7,<3' 'Pillow>=11,<13'
       - name: Generate iOS light, dark and tinted icons
-        run: .icon-venv/bin/python scripts/generate_app_icons.py --platform ios
+        run: |
+          # Cairo is installed by Homebrew, outside the default dyld search path.
+          export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix cairo)/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+          .icon-venv/bin/python -c 'import cairosvg; print("CairoSVG available")'
+          .icon-venv/bin/python scripts/generate_app_icons.py --platform ios
       - run: flutter pub get
       - name: Build unsigned iOS app
         run: flutter build ios --release --no-codesign

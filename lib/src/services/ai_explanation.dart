@@ -41,24 +41,24 @@ String buildAiExplanationPrompt({
     ..writeln();
 
   if (subjectCode.trim().isNotEmpty) {
-    prompt.writeln('科目：' + subjectCode.trim());
+    prompt.writeln('科目：${subjectCode.trim()}');
   }
   if (paperTitle.trim().isNotEmpty) {
-    prompt.writeln('試卷：' + paperTitle.trim());
+    prompt.writeln('試卷：${paperTitle.trim()}');
   }
-  prompt.writeln('題號：' + questionNumber.toString());
+  prompt.writeln('題號：$questionNumber');
   if (content != null) {
     if (content.year.isNotEmpty) {
-      prompt.writeln('年份：' + content.year);
+      prompt.writeln('年份：${content.year}');
     }
     if (content.questionNo.isNotEmpty) {
-      prompt.writeln('原題號：' + content.questionNo);
+      prompt.writeln('原題號：${content.questionNo}');
     }
   }
   prompt.writeln();
 
   final stem = _visibleText(content?.displayContent ?? '');
-  prompt.writeln('題目：' + (stem.isEmpty ? '（未能從題目擷取文字，請參考截圖）' : stem));
+  prompt.writeln("題目：${stem.isEmpty ? '（未能從題目擷取文字，請參考截圖）' : stem}");
 
   final choices = content?.choices ?? const <OqbChoice>[];
   if (choices.isNotEmpty) {
@@ -67,19 +67,17 @@ String buildAiExplanationPrompt({
     for (final choice in choices) {
       final body = _visibleText(choice.displayHtml);
       prompt.writeln(
-        choice.label +
-            '. ' +
-            (body.isEmpty ? '（圖片或非文字選項，請參考截圖）' : body),
+        "${choice.label}. ${body.isEmpty ? '（圖片或非文字選項，請參考截圖）' : body}",
       );
     }
   }
 
   prompt.writeln();
-  prompt.writeln('我的答案：' + _formatInput(userAnswer, choices));
+  prompt.writeln('我的答案：${_formatInput(userAnswer, choices)}');
 
   final answerKey = correctAnswer ?? content?.suggestedAnswer ?? question.suggestedAnswer;
   if (answerKey != null && answerKey.isNotEmpty) {
-    prompt.writeln('正確答案：' + _formatInput(answerKey, choices));
+    prompt.writeln('正確答案：${_formatInput(answerKey, choices)}');
   } else {
     prompt.writeln('正確答案：OQB 未提供；請先根據題目推理，勿假裝已有官方答案。');
   }
@@ -87,10 +85,10 @@ String buildAiExplanationPrompt({
   final modelAnswer = _visibleText(content?.modelAnswer ?? '');
   final feedback = _visibleText(content?.feedback ?? '');
   if (modelAnswer.isNotEmpty) {
-    prompt.writeln('OQB 參考答案：' + modelAnswer);
+    prompt.writeln('OQB 參考答案：$modelAnswer');
   }
   if (feedback.isNotEmpty) {
-    prompt.writeln('OQB 回饋：' + feedback);
+    prompt.writeln('OQB 回饋：$feedback');
   }
 
   final includesMedia = content != null &&
@@ -112,7 +110,7 @@ String _formatInput(OqbUserInput input, List<OqbChoice> choices) {
     return input.choices.map((index) {
       final body = choices.where((choice) => choice.index == index);
       final text = body.isEmpty ? '' : _visibleText(body.first.displayHtml);
-      return choiceLabel(index) + (text.isEmpty ? '' : '. ' + text);
+      return "${choiceLabel(index)}${text.isEmpty ? '' : '. $text'}";
     }).join('、');
   }
   final text = _visibleText(input.raw ?? '');
