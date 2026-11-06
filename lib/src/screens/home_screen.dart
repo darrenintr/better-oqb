@@ -10,6 +10,7 @@ import '../models/oqb_review.dart';
 import '../services/oqb_api_client.dart';
 import '../services/oqb_bridge.dart';
 import '../services/oqb_repository.dart';
+import '../theme/kiln_motion.dart';
 import '../widgets/oqb_browser.dart';
 import '../widgets/oqb_html.dart';
 import '../widgets/oqb_network_inspector.dart';
@@ -332,6 +333,30 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _inStudyScreen =>
       _reviewPaperId != 0 || _study.hasSession;
 
+  // Stable IDs prevent a rebuild for each API notification from replaying
+  // the screen transition. Only logical view changes are animated.
+  String get _motionViewKey {
+    if (_reviewPaperId != 0) {
+      return _reviewStudy == null ? 'review-loading-$_reviewPaperId' : 'review-$_reviewPaperId';
+    }
+    final session = _study.session;
+    if (session != null) return 'trial-${session.trial.id}';
+    if (_study.isLoading) return 'paper-loading-$_requestedPaperId';
+    if (_study.loadError != null && _requestedPaperId != 0) {
+      return 'paper-error-$_requestedPaperId';
+    }
+    if (_page.isQuestionRoute && !_api.status.value.isReady) {
+      return 'connecting-question-${_page.routePaperId}';
+    }
+    if (_catalog.hasCatalog) return 'catalog';
+    if (_api.status.value.isReady) {
+      return _catalog.hasLoaded && _catalog.error != null
+          ? 'catalog-error'
+          : 'catalog-loading';
+    }
+    return 'connect';
+  }
+
   Widget _buildBetterView() {
     final status = _api.status.value;
 
@@ -469,16 +494,31 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _browser,
                     ),
                   ),
-                  if (!_showOriginal)
-                    Positioned.fill(
-                      child: ColoredBox(
-                        color: Theme.of(context).colorScheme.surface,
-                        child: OqbAssetScope(
-                          loader: _assets,
-                          child: _buildBetterView(),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      ignoring: _showOriginal,
+                      child: AnimatedOpacity(
+                        opacity: _showOriginal ? 0 : 1,
+                        duration: KilnMotion.duration(context, KilnMotion.normal),
+                        curve: KilnMotion.enter,
+                        child: ExcludeSemantics(
+                          excluding: _showOriginal,
+                          child: ColoredBox(
+                            color: Theme.of(context).colorScheme.surface,
+                            child: OqbAssetScope(
+                              loader: _assets,
+                              child: KilnFadeThrough(
+                                child: KeyedSubtree(
+                                  key: ValueKey(_motionViewKey),
+                                  child: _buildBetterView(),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -492,7 +532,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppBar(
       titleSpacing: 16,
       toolbarHeight: 52,
-      title: Text(_showOriginal ? 'Original OQB' : 'Better OQB'),
+      title: AnimatedSwitcher(
+        duration: KilnMotion.duration(context, KilnMotion.quick),
+        child: Text(
+          _showOriginal ? 'Original OQB' : 'Better OQB',
+          key: ValueKey(_showOriginal),
+        ),
+      ),
       actions: [
         IconButton(
           tooltip: 'OQB API inspector (${_networkEvents.length})',

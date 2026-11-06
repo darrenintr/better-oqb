@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/study_controller.dart';
 import '../models/oqb_trial.dart';
 import '../theme/kiln_theme.dart';
+import '../theme/kiln_motion.dart';
 
 enum _NavigatorFilter { all, unanswered, answered, flagged }
 
@@ -177,12 +178,19 @@ class _FilterControl extends StatelessWidget {
                 child: Semantics(
                   button: true,
                   selected: entry.key == selected,
-                  child: Material(
-                    color: entry.key == selected ? k.surfaceRaised : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    child: InkWell(
+                  child: AnimatedContainer(
+                    duration: KilnMotion.duration(context, KilnMotion.quick),
+                    curve: KilnMotion.enter,
+                    decoration: BoxDecoration(
+                      color: entry.key == selected ? k.surfaceRaised : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
-                      onTap: () => onSelected(entry.key),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => onSelected(entry.key),
                       child: SizedBox(
                         height: 36,
                         child: Center(
@@ -194,6 +202,7 @@ class _FilterControl extends StatelessWidget {
                             style: style.copyWith(color: entry.key == selected ? k.ink : k.inkMuted),
                           ),
                         ),
+                      ),
                       ),
                     ),
                   ),
@@ -282,15 +291,20 @@ class _QuestionTile extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: Material(
-              color: background,
-              shape: RoundedRectangleBorder(
+            child: AnimatedContainer(
+              duration: KilnMotion.duration(context, KilnMotion.quick),
+              curve: KilnMotion.enter,
+              decoration: BoxDecoration(
+                color: background,
                 borderRadius: BorderRadius.circular(KilnRadius.sm),
-                side: border,
+                border: Border.fromBorderSide(border),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: onTap,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(KilnRadius.sm),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: onTap,
                 child: Center(
                   child: FittedBox(
                     child: Padding(
@@ -303,6 +317,7 @@ class _QuestionTile extends StatelessWidget {
                             ),
                     ),
                   ),
+                ),
                 ),
               ),
             ),

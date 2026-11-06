@@ -8,6 +8,7 @@ import '../models/oqb_trial.dart';
 import '../services/ask_ai.dart';
 import '../services/ask_ai_images.dart';
 import '../theme/kiln_theme.dart';
+import '../theme/kiln_motion.dart';
 import '../widgets/oqb_html.dart';
 import '../widgets/question_navigator.dart';
 
@@ -246,15 +247,17 @@ class _StudyViewState extends State<StudyView> {
               final twoColumns = contentWidth >= kStudyTwoColumnBreakpoint;
               final compact = constraints.maxWidth < 600;
 
-              final body = _QuestionBody(
-                key: ValueKey(question.id),
-                controller: _controller,
-                question: question,
-                meta: widget.meta,
-                twoColumns: twoColumns,
-                compact: compact,
-                onOpenOriginal: widget.onOpenOriginal,
-                onAskAi: _askAi,
+              final body = KilnFadeThrough(
+                child: _QuestionBody(
+                  key: ValueKey(question.id),
+                  controller: _controller,
+                  question: question,
+                  meta: widget.meta,
+                  twoColumns: twoColumns,
+                  compact: compact,
+                  onOpenOriginal: widget.onOpenOriginal,
+                  onAskAi: _askAi,
+                ),
               );
 
               return ColoredBox(
@@ -494,7 +497,16 @@ class _SaveIndicator extends StatelessWidget {
       child: Semantics(
         liveRegion: true,
         label: label,
-        child: KilnPill(icon: icon, label: label, color: color, showLabel: !compact),
+        child: AnimatedSwitcher(
+          duration: KilnMotion.duration(context, KilnMotion.quick),
+          child: KilnPill(
+            key: ValueKey(controller.saveState),
+            icon: icon,
+            label: label,
+            color: color,
+            showLabel: !compact,
+          ),
+        ),
       ),
     );
   }
@@ -1147,15 +1159,20 @@ class _AnswerCard extends StatelessWidget {
       button: enabled,
       selected: selected,
       label: semantics,
-      child: Material(
-        color: background,
-        shape: RoundedRectangleBorder(
+      child: AnimatedContainer(
+        duration: KilnMotion.duration(context, KilnMotion.quick),
+        curve: KilnMotion.enter,
+        decoration: BoxDecoration(
+          color: background,
           borderRadius: BorderRadius.circular(KilnRadius.md),
-          side: border,
+          border: Border.fromBorderSide(border),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(KilnRadius.md),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
             child: Padding(
@@ -1164,7 +1181,8 @@ class _AnswerCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
+                    duration: KilnMotion.duration(context, KilnMotion.quick),
+                    curve: KilnMotion.enter,
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
@@ -1217,6 +1235,7 @@ class _AnswerCard extends StatelessWidget {
                 ],
               ),
             ),
+          ),
           ),
         ),
       ),

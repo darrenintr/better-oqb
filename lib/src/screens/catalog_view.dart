@@ -4,6 +4,7 @@ import '../controllers/catalog_controller.dart';
 import '../models/oqb_api_data.dart';
 import '../models/oqb_meta.dart';
 import '../theme/kiln_theme.dart';
+import '../theme/kiln_motion.dart';
 
 /// How far the learner got in a paper, as last seen in the study view.
 ///
@@ -96,47 +97,56 @@ class _CatalogViewState extends State<CatalogView> {
                   SizedBox(width: constraints.maxWidth >= 1300 ? 320 : 280, child: overview),
                   const VerticalDivider(width: 1),
                   Expanded(
-                    child: subject == null
-                        ? ListView(
-                            padding: const EdgeInsets.fromLTRB(32, 40, 32, 48),
-                            children: [
-                              continueSection,
-                              const SizedBox(height: 48),
-                              const _EmptyNote('No question banks are available to this account.'),
-                            ],
-                          )
-                        : _SubjectDetail(
-                            key: ValueKey(subject),
-                            controller: controller,
-                            subject: subject,
-                            leading: continueSection,
-                            onStartPaper: widget.onStartPaper,
-                            onReviewPaper: widget.onReviewPaper,
-                            onOpenOriginal: widget.onOpenOriginal,
-                          ),
+                    child: KilnFadeThrough(
+                      child: subject == null
+                          ? KeyedSubtree(
+                              key: const ValueKey('catalog-empty-subject'),
+                              child: ListView(
+                                padding: const EdgeInsets.fromLTRB(32, 40, 32, 48),
+                                children: [
+                                  continueSection,
+                                  const SizedBox(height: 48),
+                                  const _EmptyNote('No question banks are available to this account.'),
+                                ],
+                              ),
+                            )
+                          : _SubjectDetail(
+                              key: ValueKey(subject),
+                              controller: controller,
+                              subject: subject,
+                              leading: continueSection,
+                              onStartPaper: widget.onStartPaper,
+                              onReviewPaper: widget.onReviewPaper,
+                              onOpenOriginal: widget.onOpenOriginal,
+                            ),
+                    ),
                   ),
                 ],
               );
             }
 
-            if (selected != null) {
-              return PopScope(
-                canPop: false,
-                onPopInvokedWithResult: (didPop, _) {
-                  if (!didPop) setState(() => _subject = null);
-                },
-                child: _SubjectDetail(
-                  key: ValueKey(selected),
-                  controller: controller,
-                  subject: selected,
-                  onBack: () => setState(() => _subject = null),
-                  onStartPaper: widget.onStartPaper,
-                  onReviewPaper: widget.onReviewPaper,
-                  onOpenOriginal: widget.onOpenOriginal,
-                ),
-              );
-            }
-            return overview;
+            return PopScope(
+              canPop: selected == null,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop && selected != null) setState(() => _subject = null);
+              },
+              child: KilnFadeThrough(
+                child: selected == null
+                    ? KeyedSubtree(
+                        key: const ValueKey('catalog-overview'),
+                        child: overview,
+                      )
+                    : _SubjectDetail(
+                        key: ValueKey(selected),
+                        controller: controller,
+                        subject: selected,
+                        onBack: () => setState(() => _subject = null),
+                        onStartPaper: widget.onStartPaper,
+                        onReviewPaper: widget.onReviewPaper,
+                        onOpenOriginal: widget.onOpenOriginal,
+                      ),
+              ),
+            );
           },
         );
       },
@@ -574,12 +584,19 @@ class _SubjectTile extends StatelessWidget {
       child: Semantics(
         selected: selected,
         button: true,
-        child: Material(
-          color: selected ? k.oat : Colors.transparent,
-          borderRadius: BorderRadius.circular(KilnRadius.md),
-          child: InkWell(
+        child: AnimatedContainer(
+          duration: KilnMotion.duration(context, KilnMotion.quick),
+          curve: KilnMotion.enter,
+          decoration: BoxDecoration(
+            color: selected ? k.oat : Colors.transparent,
             borderRadius: BorderRadius.circular(KilnRadius.md),
-            onTap: onTap,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(KilnRadius.md),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(KilnRadius.md),
+              onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
               child: Row(
@@ -607,6 +624,7 @@ class _SubjectTile extends StatelessWidget {
                   if (showChevron) Icon(Icons.chevron_right, color: k.inkMuted),
                 ],
               ),
+            ),
             ),
           ),
         ),
