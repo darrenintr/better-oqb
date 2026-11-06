@@ -25,6 +25,7 @@ jobs:
           flutter-version: '3.41.5'
           cache: true
       - run: flutter pub get
+      - run: python3 -m py_compile scripts/generate_app_icons.py
       - run: flutter analyze
       - run: flutter test
 
@@ -39,6 +40,17 @@ jobs:
           cache: true
       - name: Generate Android runner
         run: flutter create --platforms=android .
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Android icon tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2
+          python3 -m venv .icon-venv
+          .icon-venv/bin/python -m pip install --disable-pip-version-check 'CairoSVG>=2.7,<3' 'Pillow>=11,<13'
+      - name: Generate Android adaptive and themed icons
+        run: .icon-venv/bin/python scripts/generate_app_icons.py --platform android
       - name: Enable internet access in release APK
         run: |
           python3 - <<'PY'
@@ -80,6 +92,16 @@ jobs:
           cache: true
       - name: Generate iOS runner
         run: flutter create --platforms=ios .
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install iOS icon tooling
+        run: |
+          brew list --versions cairo >/dev/null 2>&1 || brew install cairo
+          python3 -m venv .icon-venv
+          .icon-venv/bin/python -m pip install --disable-pip-version-check 'CairoSVG>=2.7,<3' 'Pillow>=11,<13'
+      - name: Generate iOS light, dark and tinted icons
+        run: .icon-venv/bin/python scripts/generate_app_icons.py --platform ios
       - run: flutter pub get
       - name: Build unsigned iOS app
         run: flutter build ios --release --no-codesign

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">BetterOQB monochrome</title>
+  <desc id="desc">Single-color question-card stack with a check badge, designed for system tinting.</desc>
+  <!-- Card outlines intentionally stop behind the badge: no overlapping strokes. -->
+  <path d="M39 33.5 C39 26.6 44.6 21 52 21 H91 C98.2 21 104 26.8 104 34 V74" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M82 34 H36 C28.8 34 23 39.8 23 47 V97 C23 104.2 28.8 110 36 110 H75 M95 74 V47 C95 39.8 89.2 34 82 34" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M44.5 57.5c.8-8.5 6.5-13.5 15-13.5 8.7 0 14.6 5.2 14.6 13.1 0 6-3.4 9.4-9.3 13.6-3.8 2.7-5.1 5-5.1 8.6" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="59.7" cy="90.3" r="3.6" fill="currentColor"/>
+  <circle cx="94" cy="95" r="17" stroke="currentColor" stroke-width="5"/>
+  <path d="m85.5 95.2 5.5 5.4 11.5-12.1" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

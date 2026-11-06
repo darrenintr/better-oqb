@@ -109,6 +109,36 @@ flutter pub get
 flutter run -d linux   # or an attached iPad/Android device (flutter devices)
 ```
 
+## App icons
+
+The app icon sources are in [assets/icon/](assets/icon/). They use Material You
+colors and a simple question-card/checkmark motif. Because this repository does
+not track Flutter-generated native runner directories, the icon generator runs
+**after flutter create** in both Android and iOS GitHub Actions build jobs (also
+in the iOS Pencil preview workflow).
+
+- **Android:** square and round legacy launcher icons; adaptive foreground and
+  background for Android 8+; monochrome foreground for Material You themed icons
+  on supported Android 13+ launchers. Android's system chooses the mask and,
+  when themed icons are enabled, the wallpaper-derived color.
+- **iPhone/iPad:** opaque 1024px universal Light icon, a Dark appearance, and a
+  grayscale Tinted appearance for iOS/iPadOS 18+ system icon customization.
+  Older OS versions continue using the standard icon.
+
+To regenerate native assets locally (on macOS, install Cairo with
+`brew install cairo` first):
+
+```bash
+flutter create --platforms=android,ios .
+python3 -m venv .icon-venv
+.icon-venv/bin/python -m pip install 'CairoSVG>=2.7,<3' 'Pillow>=11,<13'
+.icon-venv/bin/python scripts/generate_app_icons.py --platform all
+```
+
+For a single platform, use `--platform android` or
+`--platform ios`. Do not run `flutter create` again
+without regenerating the app icons afterward.
+
 ## Development
 
 ```bash
