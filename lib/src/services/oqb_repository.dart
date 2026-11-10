@@ -5,6 +5,7 @@ import '../models/oqb_review.dart';
 import '../models/oqb_trial.dart';
 import 'oqb_api_client.dart';
 import 'oqb_api_requests.dart';
+import 'performance_metrics.dart';
 
 /// Result of a save_trial call that OQB accepted.
 class OqbSaveResult {
@@ -44,27 +45,34 @@ class OqbRepository {
   }
 
   Future<List<OqbPaperSummary>> loadPresetPapers(String subject) async {
-    final response = await transport.send(OqbRequests.loadPresetPapers(subject));
+    final response = await transport.send(
+      OqbRequests.loadPresetPapers(subject),
+    );
     return OqbObservedApiState.parsePapers(response.result);
   }
 
   Future<List<OqbPaperSummary>> loadSubmittedPapers(String subject) async {
-    final response =
-        await transport.send(OqbRequests.loadSubmittedPapers(subject));
+    final response = await transport.send(
+      OqbRequests.loadSubmittedPapers(subject),
+    );
     return OqbObservedApiState.parsePapers(response.result);
   }
 
   /// The layout of get_user_question_stat has not been captured precisely;
   /// return the sanitized result map for best-effort display.
   Future<Map<String, dynamic>> getUserQuestionStat(String subject) async {
-    final response =
-        await transport.send(OqbRequests.getUserQuestionStat(subject));
+    final response = await transport.send(
+      OqbRequests.getUserQuestionStat(subject),
+    );
     return asMap(response.result);
   }
 
   /// Starts or resumes an attempt. Must follow an explicit user action.
   Future<OqbTrialSession> startTrial(int paperId) async {
-    final response = await transport.send(OqbRequests.startTrial(paperId));
+    final response = await PerformanceMetrics.instance.measure(
+      'Open paper API',
+      () => transport.send(OqbRequests.startTrial(paperId)),
+    );
     return OqbTrialSession.fromResult(response.result);
   }
 
@@ -74,14 +82,19 @@ class OqbRepository {
     required int trialTimeSpent,
     required int latestAccessQuestionNo,
   }) async {
-    final response = await transport.send(OqbRequests.saveTrial(
-      trialId: trialId,
-      answers: answers,
-      trialTimeSpent: trialTimeSpent,
-      latestAccessQuestionNo: latestAccessQuestionNo,
-    ));
+    final response = await transport.send(
+      OqbRequests.saveTrial(
+        trialId: trialId,
+        answers: answers,
+        trialTimeSpent: trialTimeSpent,
+        latestAccessQuestionNo: latestAccessQuestionNo,
+      ),
+    );
     final rows = _trialQuestionRows(response.result);
-    return OqbSaveResult(statuses: _statuses(rows), answerKey: _answerKey(rows));
+    return OqbSaveResult(
+      statuses: _statuses(rows),
+      answerKey: _answerKey(rows),
+    );
   }
 
   /// Submits the attempt. Only call from a confirmed user action.
@@ -91,25 +104,29 @@ class OqbRepository {
     required int trialTimeSpent,
     required int latestAccessQuestionNo,
   }) async {
-    await transport.send(OqbRequests.submitTrial(
-      trialId: trialId,
-      answers: answers,
-      trialTimeSpent: trialTimeSpent,
-      latestAccessQuestionNo: latestAccessQuestionNo,
-    ));
+    await transport.send(
+      OqbRequests.submitTrial(
+        trialId: trialId,
+        answers: answers,
+        trialTimeSpent: trialTimeSpent,
+        latestAccessQuestionNo: latestAccessQuestionNo,
+      ),
+    );
   }
 
   /// Observed review flow: start_trial(review) then detailed load_paper.
   /// The detailed paper is optional; review still works without it.
   Future<OqbReview> loadReview(int paperId, {OqbPaperSummary? summary}) async {
-    final response =
-        await transport.send(OqbRequests.startTrial(paperId, review: true));
+    final response = await transport.send(
+      OqbRequests.startTrial(paperId, review: true),
+    );
     final session = OqbTrialSession.fromResult(response.result, isReview: true);
 
     OqbPaperDetail? detail;
     try {
-      final paper =
-          await transport.send(OqbRequests.loadPaper(paperId, detailed: true));
+      final paper = await transport.send(
+        OqbRequests.loadPaper(paperId, detailed: true),
+      );
       detail = OqbPaperDetail.fromResult(paper.result);
     } on OqbApiException {
       detail = null;
@@ -131,7 +148,9 @@ class OqbRepository {
     for (final row in rows) {
       final id = asInt(row['id']);
       final status = asString(row['status']);
-      if (id > 0 && status.isNotEmpty && status != 'null') statuses[id] = status;
+      if (id > 0 && status.isNotEmpty && status != 'null') {
+        statuses[id] = status;
+      }
     }
     return statuses;
   }

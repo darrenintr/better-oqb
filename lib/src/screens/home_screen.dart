@@ -10,6 +10,8 @@ import '../models/oqb_review.dart';
 import '../services/oqb_api_client.dart';
 import '../services/oqb_bridge.dart';
 import '../services/oqb_repository.dart';
+import '../services/local_preferences.dart';
+import '../services/mistake_history.dart';
 import '../theme/kiln_motion.dart';
 import '../widgets/oqb_browser.dart';
 import '../widgets/oqb_html.dart';
@@ -36,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final StudyController _study;
   late final OqbAssetLoader _assets;
   late final Widget _browser;
+  bool _browserReady = false;
 
   OqbPageState _page = const OqbPageState();
   final List<OqbNetworkEvent> _networkEvents = <OqbNetworkEvent>[];
@@ -63,10 +66,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _browserReady = true);
+    });
     _api = OqbWebViewApiClient(runner: _browserController.evaluate);
     _repository = OqbRepository(_api);
-    _catalog = CatalogController(_repository);
-    _study = StudyController(_repository);
+    _catalog = CatalogController(_repository, cache: LocalPreferences.instance);
+    _study = StudyController(_repository, mistakes: MistakeHistory.instance);
     _assets = OqbAssetLoader(_api);
     _api.status.addListener(_onApiStatus);
     _browser = OqbBrowser(
@@ -95,8 +101,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onApiStatus() {
     final status = _api.status.value;
     if (!status.isReady) return;
-    final retryCatalog = _catalog.hasLoaded && !_catalog.hasCatalog && _catalog.error != null;
-    if ((!_catalog.hasLoaded || retryCatalog) && !_catalog.isLoading) _catalog.refresh();
+    final retryCatalog =
+        _catalog.hasLoaded && !_catalog.hasCatalog && _catalog.error != null;
+    if ((!_catalog.hasLoaded || retryCatalog) && !_catalog.isLoading) {
+      _catalog.refresh();
+    }
     if (_autoShownForLogin && mounted) {
       setState(() {
         _autoShownForLogin = false;
@@ -144,16 +153,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (paperId <= 0 || paperId == _handledRoutePaperId) return;
     if (!_api.status.value.isReady) return; // retried on the next status
     _handledRoutePaperId = paperId;
-    if (_study.session?.paper.id == paperId || _study.loadingPaperId == paperId) return;
+    if (_study.session?.paper.id == paperId ||
+        _study.loadingPaperId == paperId) {
+      return;
+    }
     _openPaper(paperId, questionNo: _page.routeQuestionNumber, showStudy: true);
   }
 
   // ---- actions ---------------------------------------------------------------
 
-  Future<void> _openPaper(int paperId, {int questionNo = 0, bool showStudy = false}) async {
+  Future<void> _openPaper(
+    int paperId, {
+    int questionNo = 0,
+    bool showStudy = false,
+  }) async {
     if (_study.hasSession && _study.session!.paper.id != paperId) {
       if (!await _study.flush()) {
-        _snack('Answers in the current paper are not saved yet; staying on it.');
+        _snack(
+          'Answers in the current paper are not saved yet; staying on it.',
+        );
         return;
       }
       _rememberProgress();
@@ -181,8 +199,14 @@ class _HomeScreenState extends State<HomeScreen> {
             'If you leave now they will be lost.',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Leave')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Stay'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Leave'),
+            ),
           ],
         ),
       );
@@ -217,7 +241,10 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final review = await _repository.loadReview(paperId, summary: summary);
       if (!mounted || _reviewPaperId != paperId) return;
-      final controller = StudyController(_repository)..attach(review.session);
+      final controller = StudyController(
+        _repository,
+        mistakes: MistakeHistory.instance,
+      )..attach(review.session);
       setState(() {
         _review = review;
         _reviewStudy = controller;
@@ -276,14 +303,17 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     // Pick up the question (and any answers) the user changed in OQB.
     final session = _study.session;
-    if (session != null && !_study.isReadOnly && _page.routePaperId == session.paper.id) {
+    if (session != null &&
+        !_study.isReadOnly &&
+        _page.routePaperId == session.paper.id) {
       final number = _page.routeQuestionNumber;
       if (number > 0) _study.goTo(number - 1);
       _study.reloadFromServer(questionNo: number);
     }
   }
 
-  void _toggleOriginal() => _showOriginal ? _hideOriginalPage() : _showOriginalPage();
+  void _toggleOriginal() =>
+      _showOriginal ? _hideOriginalPage() : _showOriginalPage();
 
   void _createPaper() {
     _browserController.openPath('/student/viewtest');
@@ -292,7 +322,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _openNetworkInspector() async {
@@ -320,7 +352,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _hideOriginalPage();
     } else if (_reviewPaperId != 0) {
       _closeReview();
-    } else if (_study.hasSession || _study.isLoading || _study.loadError != null) {
+    } else if (_study.hasSession ||
+        _study.isLoading ||
+        _study.loadError != null) {
       _exitStudy();
     } else {
       return false;
@@ -330,14 +364,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- view selection -----------------------------------------------------------
 
-  bool get _inStudyScreen =>
-      _reviewPaperId != 0 || _study.hasSession;
+  bool get _inStudyScreen => _reviewPaperId != 0 || _study.hasSession;
 
   // Stable IDs prevent a rebuild for each API notification from replaying
   // the screen transition. Only logical view changes are animated.
   String get _motionViewKey {
     if (_reviewPaperId != 0) {
-      return _reviewStudy == null ? 'review-loading-$_reviewPaperId' : 'review-$_reviewPaperId';
+      return _reviewStudy == null
+          ? 'review-loading-$_reviewPaperId'
+          : 'review-$_reviewPaperId';
     }
     final session = _study.session;
     if (session != null) return 'trial-${session.trial.id}';
@@ -406,7 +441,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final loadError = _study.loadError;
     if (loadError != null && _requestedPaperId != 0) {
-      void retry() => _study.open(_requestedPaperId, questionNo: _requestedQuestionNo);
+      void retry() =>
+          _study.open(_requestedPaperId, questionNo: _requestedQuestionNo);
       if (_page.hasQuestion && _page.routePaperId == _requestedPaperId) {
         return LegacyQuestionView(
           state: _page,
@@ -472,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([_study, _catalog, _api.status]),
+      listenable: Listenable.merge([_study.structure, _catalog, _api.status]),
       builder: (context, _) {
         final hideAppBar = !_showOriginal && _inStudyScreen;
         return PopScope(
@@ -491,7 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Positioned.fill(
                     child: IgnorePointer(
                       ignoring: !_showOriginal,
-                      child: _browser,
+                      child: _browserReady ? _browser : const SizedBox.shrink(),
                     ),
                   ),
                   Positioned.fill(
@@ -499,7 +535,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ignoring: _showOriginal,
                       child: AnimatedOpacity(
                         opacity: _showOriginal ? 0 : 1,
-                        duration: KilnMotion.duration(context, KilnMotion.normal),
+                        duration: KilnMotion.duration(
+                          context,
+                          KilnMotion.normal,
+                        ),
                         curve: KilnMotion.enter,
                         child: ExcludeSemantics(
                           excluding: _showOriginal,

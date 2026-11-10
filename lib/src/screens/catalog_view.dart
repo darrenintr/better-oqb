@@ -12,7 +12,11 @@ import '../theme/kiln_motion.dart';
 /// papers opened in this app session.
 @immutable
 class PaperProgress {
-  const PaperProgress({required this.answered, required this.total, required this.questionNumber});
+  const PaperProgress({
+    required this.answered,
+    required this.total,
+    required this.questionNumber,
+  });
 
   final int answered;
   final int total;
@@ -20,7 +24,8 @@ class PaperProgress {
   /// 1-based question the learner was on.
   final int questionNumber;
 
-  double get fraction => total <= 0 ? 0 : (answered / total).clamp(0, 1).toDouble();
+  double get fraction =>
+      total <= 0 ? 0 : (answered / total).clamp(0, 1).toDouble();
 }
 
 /// Better OQB home: resumable papers, subjects, banks, topic/difficulty
@@ -61,16 +66,22 @@ class _CatalogViewState extends State<CatalogView> {
       builder: (context, _) {
         final controller = widget.controller;
         final subjects = controller.data.subjects;
-        final selected = _subject != null && subjects.contains(_subject) ? _subject : null;
+        final selected =
+            _subject != null && subjects.contains(_subject) ? _subject : null;
 
         return LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 900;
-            final subject = wide ? (selected ?? (subjects.isEmpty ? null : subjects.first)) : selected;
+            final subject = wide
+                ? (selected ?? (subjects.isEmpty ? null : subjects.first))
+                : selected;
             final overview = _Overview(
               controller: controller,
               selectedSubject: subject,
-              onSelectSubject: (subject) => setState(() => _subject = subject),
+              onSelectSubject: (subject) {
+                controller.prioritizeSubject(subject);
+                setState(() => _subject = subject);
+              },
               continueSection: wide
                   ? null
                   : _ContinueSection(
@@ -94,7 +105,10 @@ class _CatalogViewState extends State<CatalogView> {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(width: constraints.maxWidth >= 1300 ? 320 : 280, child: overview),
+                  SizedBox(
+                    width: constraints.maxWidth >= 1300 ? 320 : 280,
+                    child: overview,
+                  ),
                   const VerticalDivider(width: 1),
                   Expanded(
                     child: KilnFadeThrough(
@@ -102,11 +116,18 @@ class _CatalogViewState extends State<CatalogView> {
                           ? KeyedSubtree(
                               key: const ValueKey('catalog-empty-subject'),
                               child: ListView(
-                                padding: const EdgeInsets.fromLTRB(32, 40, 32, 48),
+                                padding: const EdgeInsets.fromLTRB(
+                                  32,
+                                  40,
+                                  32,
+                                  48,
+                                ),
                                 children: [
                                   continueSection,
                                   const SizedBox(height: 48),
-                                  const _EmptyNote('No question banks are available to this account.'),
+                                  const _EmptyNote(
+                                    'No question banks are available to this account.',
+                                  ),
                                 ],
                               ),
                             )
@@ -128,7 +149,9 @@ class _CatalogViewState extends State<CatalogView> {
             return PopScope(
               canPop: selected == null,
               onPopInvokedWithResult: (didPop, _) {
-                if (!didPop && selected != null) setState(() => _subject = null);
+                if (!didPop && selected != null) {
+                  setState(() => _subject = null);
+                }
               },
               child: KilnFadeThrough(
                 child: selected == null
@@ -181,10 +204,15 @@ class _Overview extends StatelessWidget {
     final refresh = controller.isLoading
         ? const Padding(
             padding: EdgeInsets.all(12),
-            child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+            child: SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           )
         : IconButton(
-            tooltip: 'Refresh',
+            tooltip: controller.isStale
+                ? 'Showing saved catalogue · refresh'
+                : 'Refresh',
             onPressed: controller.refresh,
             icon: const Icon(Icons.refresh),
           );
@@ -193,10 +221,20 @@ class _Overview extends StatelessWidget {
       onRefresh: controller.refresh,
       color: k.ink,
       child: ListView(
-        padding: EdgeInsets.fromLTRB(compact ? 20 : 16, compact ? 20 : 32, compact ? 20 : 16, 40),
+        padding: EdgeInsets.fromLTRB(
+          compact ? 20 : 16,
+          compact ? 20 : 32,
+          compact ? 20 : 16,
+          40,
+        ),
         children: [
           if (compact)
-            Row(children: [Expanded(child: Text('Study', style: text.title)), refresh])
+            Row(
+              children: [
+                Expanded(child: Text('Study', style: text.title)),
+                refresh,
+              ],
+            )
           else
             Row(
               children: [
@@ -216,7 +254,10 @@ class _Overview extends StatelessWidget {
               icon: Icons.error_outline,
               title: 'Some OQB data could not be loaded',
               message: '${controller.error}',
-              action: OutlinedButton(onPressed: controller.refresh, child: const Text('Retry')),
+              action: OutlinedButton(
+                onPressed: controller.refresh,
+                child: const Text('Retry'),
+              ),
             ),
           if (continueSection != null) ...[
             const SizedBox(height: 16),
@@ -285,8 +326,12 @@ class _ContinueSection extends StatelessWidget {
           )
         : LayoutBuilder(
             builder: (context, constraints) {
-              final columns = ((constraints.maxWidth + _gap) / (_minCardWidth + _gap)).floor().clamp(1, 4);
-              final width = (constraints.maxWidth - _gap * (columns - 1)) / columns;
+              final columns =
+                  ((constraints.maxWidth + _gap) / (_minCardWidth + _gap))
+                      .floor()
+                      .clamp(1, 4);
+              final width =
+                  (constraints.maxWidth - _gap * (columns - 1)) / columns;
               return Wrap(
                 spacing: _gap,
                 runSpacing: _gap,
@@ -298,8 +343,10 @@ class _ContinueSection extends StatelessWidget {
                         paper: paper,
                         progress: progress[paper.id],
                         subtitle: [
-                          if (paper.subjectCode.isNotEmpty) meta.label(paper.subjectCode),
-                          if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                          if (paper.subjectCode.isNotEmpty)
+                            meta.label(paper.subjectCode),
+                          if (paper.numQuestions > 0)
+                            '${paper.numQuestions} questions',
                           if (paper.isTeacher) 'From teacher',
                         ].join(' · '),
                         onTap: () => onStartPaper(paper),
@@ -332,8 +379,13 @@ class _ContinueSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Continue', style: text.title.copyWith(fontWeight: FontWeight.w400,
-            fontVariations: KilnFonts.weight(FontWeight.w400))),
+        Text(
+          'Continue',
+          style: text.title.copyWith(
+            fontWeight: FontWeight.w400,
+            fontVariations: KilnFonts.weight(FontWeight.w400),
+          ),
+        ),
         const SizedBox(height: 12),
         cards,
         const SizedBox(height: 12),
@@ -441,7 +493,13 @@ class _SectionTitle extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(title, style: context.kilnText.title.copyWith(fontSize: 22, height: 28 / 22)),
+            child: Text(
+              title,
+              style: context.kilnText.title.copyWith(
+                fontSize: 22,
+                height: 28 / 22,
+              ),
+            ),
           ),
           if (trailing != null) trailing!,
         ],
@@ -479,7 +537,10 @@ class _RowGroup extends StatelessWidget {
         for (var i = 0; i < children.length; i++)
           DecoratedBox(
             decoration: BoxDecoration(
-              border: Border(top: i == 0 ? hairline : BorderSide.none, bottom: hairline),
+              border: Border(
+                top: i == 0 ? hairline : BorderSide.none,
+                bottom: hairline,
+              ),
             ),
             child: children[i],
           ),
@@ -536,12 +597,17 @@ class _PaperRow extends StatelessWidget {
                 ),
                 if (trailingText != null) ...[
                   const SizedBox(width: 12),
-                  Text(trailingText!, style: text.title.copyWith(fontSize: 20, height: 26 / 20)),
+                  Text(
+                    trailingText!,
+                    style: text.title.copyWith(fontSize: 20, height: 26 / 20),
+                  ),
                 ],
                 const SizedBox(width: 12),
                 Text(
                   actionLabel,
-                  style: text.label.copyWith(color: onAction == null ? k.inkMuted : k.clayText),
+                  style: text.label.copyWith(
+                    color: onAction == null ? k.inkMuted : k.clayText,
+                  ),
                 ),
               ],
             ),
@@ -575,9 +641,15 @@ class _SubjectTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.kiln;
     final text = context.kilnText;
-    final questions = packages.fold<int>(0, (sum, item) => sum + item.questionCount);
+    final questions = packages.fold<int>(
+      0,
+      (sum, item) => sum + item.questionCount,
+    );
     final label = meta.label(subject);
-    final publishers = packages.map((item) => meta.label(item.publisherCode)).where((p) => p.isNotEmpty).toSet();
+    final publishers = packages
+        .map((item) => meta.label(item.publisherCode))
+        .where((p) => p.isNotEmpty)
+        .toSet();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
@@ -597,34 +669,40 @@ class _SubjectTile extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(KilnRadius.md),
               onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(label == subject ? subject.toUpperCase() : label, style: text.label),
-                        const SizedBox(height: 2),
-                        Text(
-                          [
-                            '${packages.length} bank${packages.length == 1 ? '' : 's'}',
-                            if (questions > 0) '$questions questions',
-                            if (submitted.isNotEmpty) '${submitted.length} submitted',
-                            if (publishers.isNotEmpty) publishers.take(3).join(', '),
-                          ].join(' · '),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.caption,
-                        ),
-                      ],
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label == subject ? subject.toUpperCase() : label,
+                            style: text.label,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            [
+                              '${packages.length} bank${packages.length == 1 ? '' : 's'}',
+                              if (questions > 0) '$questions questions',
+                              if (submitted.isNotEmpty)
+                                '${submitted.length} submitted',
+                              if (publishers.isNotEmpty)
+                                publishers.take(3).join(', '),
+                            ].join(' · '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.caption,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (showChevron) Icon(Icons.chevron_right, color: k.inkMuted),
-                ],
+                    if (showChevron)
+                      Icon(Icons.chevron_right, color: k.inkMuted),
+                  ],
+                ),
               ),
-            ),
             ),
           ),
         ),
@@ -669,7 +747,12 @@ class _SubjectDetail extends StatelessWidget {
     final compact = onBack != null;
 
     return ListView(
-      padding: EdgeInsets.fromLTRB(compact ? 16 : 32, compact ? 16 : 40, compact ? 16 : 32, 48),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 16 : 32,
+        compact ? 16 : 40,
+        compact ? 16 : 32,
+        48,
+      ),
       children: [
         Center(
           child: ConstrainedBox(
@@ -688,14 +771,19 @@ class _SubjectDetail extends StatelessWidget {
                       ),
                     Expanded(
                       child: Text(
-                        meta.label(subject) == subject ? subject.toUpperCase() : meta.label(subject),
+                        meta.label(subject) == subject
+                            ? subject.toUpperCase()
+                            : meta.label(subject),
                         style: compact ? text.title : text.headline,
                       ),
                     ),
                     if (loading)
                       const Padding(
                         padding: EdgeInsets.all(12),
-                        child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                        child: SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       )
                     else
                       IconButton(
@@ -730,7 +818,8 @@ class _SubjectDetail extends StatelessWidget {
                         _PaperRow(
                           paper: paper,
                           subtitle: [
-                            if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                            if (paper.numQuestions > 0)
+                              '${paper.numQuestions} questions',
                             if (paper.marked == false) 'Awaiting marking',
                             if (!paper.isReviewable) 'Review not available',
                           ].join(' · '),
@@ -738,14 +827,19 @@ class _SubjectDetail extends StatelessWidget {
                               ? null
                               : '${_fmt(paper.score!)}${paper.scoreFull == null ? '' : '/${_fmt(paper.scoreFull!)}'}',
                           actionLabel: 'Review',
-                          onAction: paper.isReviewable ? () => onReviewPaper(paper) : null,
+                          onAction: paper.isReviewable
+                              ? () => onReviewPaper(paper)
+                              : null,
                         ),
                     ],
                   ),
                 const SizedBox(height: 40),
                 _SectionTitle(
                   title: 'Preset papers',
-                  trailing: TextButton(onPressed: onOpenOriginal, child: const Text('Open in OQB')),
+                  trailing: TextButton(
+                    onPressed: onOpenOriginal,
+                    child: const Text('Open in OQB'),
+                  ),
                 ),
                 if (preset == null)
                   _EmptyNote(loading ? 'Loading…' : 'Not loaded yet.')
@@ -765,7 +859,8 @@ class _SubjectDetail extends StatelessWidget {
                         _PaperRow(
                           paper: paper,
                           subtitle: [
-                            if (paper.numQuestions > 0) '${paper.numQuestions} questions',
+                            if (paper.numQuestions > 0)
+                              '${paper.numQuestions} questions',
                             if (paper.isTeacher) 'Teacher',
                           ].join(' · '),
                           actionLabel: 'Open in OQB',
@@ -778,11 +873,15 @@ class _SubjectDetail extends StatelessWidget {
                 const _SectionTitle(title: 'Question banks'),
                 _RowGroup(
                   children: [
-                    for (final package in packages) _PackageCard(package: package, meta: meta),
+                    for (final package in packages)
+                      _PackageCard(package: package, meta: meta),
                   ],
                 ),
                 if (packages.isEmpty)
-                  Text('No question banks for this subject.', style: text.caption.copyWith(color: k.inkMuted)),
+                  Text(
+                    'No question banks for this subject.',
+                    style: text.caption.copyWith(color: k.inkMuted),
+                  ),
               ],
             ),
           ),
@@ -792,8 +891,9 @@ class _SubjectDetail extends StatelessWidget {
   }
 }
 
-String _fmt(num value) =>
-    value == value.roundToDouble() ? value.toInt().toString() : value.toStringAsFixed(1);
+String _fmt(num value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(1);
 
 class _PackageCard extends StatelessWidget {
   const _PackageCard({required this.package, required this.meta});
@@ -804,7 +904,8 @@ class _PackageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = context.kilnText;
-    final topics = package.topicCounts.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    final topics = package.topicCounts.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
     final difficulties = <int>{
       for (final counts in package.topicDifficultyCounts.values) ...counts.keys,
     }.toList()
@@ -815,31 +916,42 @@ class _PackageCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(package.displayTitle, style: text.label.copyWith(fontSize: 17, height: 24 / 17)),
+          Text(
+            package.displayTitle,
+            style: text.label.copyWith(fontSize: 17, height: 24 / 17),
+          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 6,
             runSpacing: 6,
             children: [
-              if (package.publisherCode.isNotEmpty) KilnTag(meta.label(package.publisherCode)),
-              if (package.questionCount > 0) KilnTag('${package.questionCount} questions'),
-              for (final access in package.accessType) KilnTag(access, outlined: true),
+              if (package.publisherCode.isNotEmpty)
+                KilnTag(meta.label(package.publisherCode)),
+              if (package.questionCount > 0)
+                KilnTag('${package.questionCount} questions'),
+              for (final access in package.accessType)
+                KilnTag(access, outlined: true),
             ],
           ),
           if (topics.isNotEmpty) ...[
             const SizedBox(height: 16),
-            if (difficulties.isNotEmpty) _DifficultyLegend(difficulties: difficulties, meta: meta),
+            if (difficulties.isNotEmpty)
+              _DifficultyLegend(difficulties: difficulties, meta: meta),
             for (final topic in topics)
               _TopicRow(
                 label: meta.label(topic.key),
                 count: topic.value,
-                perDifficulty: package.topicDifficultyCounts[topic.key] ?? const {},
+                perDifficulty:
+                    package.topicDifficultyCounts[topic.key] ?? const {},
                 difficulties: difficulties,
               ),
           ] else
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text('Topic statistics not provided for this bank.', style: text.caption),
+              child: Text(
+                'Topic statistics not provided for this bank.',
+                style: text.caption,
+              ),
             ),
         ],
       ),
@@ -882,7 +994,10 @@ class _DifficultyLegend extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                Text(meta.difficulty(difficulties[i]), style: context.kilnText.caption),
+                Text(
+                  meta.difficulty(difficulties[i]),
+                  style: context.kilnText.caption,
+                ),
               ],
             ),
         ],
@@ -908,7 +1023,10 @@ class _TopicRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.kiln;
     final text = context.kilnText;
-    final total = perDifficulty.values.fold<int>(0, (sum, value) => sum + value);
+    final total = perDifficulty.values.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Column(
@@ -917,7 +1035,12 @@ class _TopicRow extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: text.body),
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.body,
+                ),
               ),
               const SizedBox(width: 8),
               Text('$count', style: text.caption),
@@ -938,9 +1061,14 @@ class _TopicRow extends StatelessWidget {
                           Expanded(
                             flex: perDifficulty[difficulties[i]]!,
                             child: Tooltip(
-                              message: '${perDifficulty[difficulties[i]]} questions',
+                              message:
+                                  '${perDifficulty[difficulties[i]]} questions',
                               child: ColoredBox(
-                                color: _difficultyColor(context, i, difficulties.length),
+                                color: _difficultyColor(
+                                  context,
+                                  i,
+                                  difficulties.length,
+                                ),
                                 child: const SizedBox.expand(),
                               ),
                             ),

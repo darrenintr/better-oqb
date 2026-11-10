@@ -6,6 +6,8 @@ import '../models/oqb_trial.dart';
 import '../services/oqb_api_client.dart';
 import '../services/oqb_api_requests.dart';
 import '../services/oqb_repository.dart';
+import '../services/mistake_history.dart';
+import '../services/performance_metrics.dart';
 
 enum OqbSaveState { saved, pending, saving, failed }
 
@@ -24,9 +26,12 @@ class StudyController extends ChangeNotifier {
       Duration(seconds: 5),
       Duration(seconds: 15),
     ],
+    this.mistakes,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
+  final MistakeHistory? mistakes;
+  final structure = ValueNotifier<Object?>(null);
   final OqbRepository repository;
   final Duration saveDelay;
   final List<Duration> retryDelays;
@@ -82,7 +87,9 @@ class StudyController extends ChangeNotifier {
   }
 
   bool get isReadOnly =>
-      _submitted || (_session?.isReview ?? false) || (_session?.trial.submitted ?? false);
+      _submitted ||
+      (_session?.isReview ?? false) ||
+      (_session?.trial.submitted ?? false);
   bool get isSubmitting => _submitting;
   bool get isSubmitted => _submitted;
   Object? get submitError => _submitError;
@@ -109,7 +116,8 @@ class StudyController extends ChangeNotifier {
   }
 
   /// Suggested answer OQB sent for [question] during this attempt, if any.
-  OqbUserInput? answerKeyFor(OqbTrialQuestion question) => _answerKey[question.id];
+  OqbUserInput? answerKeyFor(OqbTrialQuestion question) =>
+      _answerKey[question.id];
 
   /// Whether [question] was checked; OQB then treats its answer as final.
   bool isChecked(OqbTrialQuestion question) =>
@@ -126,8 +134,7 @@ class StudyController extends ChangeNotifier {
       (question.question?.isMultipleChoice ?? false) &&
       !isAnswerShown(question);
 
-  int get answeredCount =>
-      _session?.questions.where(isAnswered).length ?? 0;
+  int get answeredCount => _session?.questions.where(isAnswered).length ?? 0;
 
   bool _isDirty(int id) => (_version[id] ?? 0) != (_savedVersion[id] ?? 0);
 
@@ -147,7 +154,9 @@ class StudyController extends ChangeNotifier {
     if (_inFlight.isNotEmpty) return OqbSaveState.saving;
     final dirty = _dirtyIds;
     if (dirty.isEmpty) return OqbSaveState.saved;
-    return dirty.any(_failed.contains) ? OqbSaveState.failed : OqbSaveState.pending;
+    return dirty.any(_failed.contains)
+        ? OqbSaveState.failed
+        : OqbSaveState.pending;
   }
 
   /// Seconds spent on [question], including the running timer.
@@ -221,6 +230,7 @@ class StudyController extends ChangeNotifier {
     final fallback = session.trial.latestAccessQuestionNo;
     final target = questionNo > 0 ? questionNo : fallback;
     _index = _clampIndex(target > 0 ? target - 1 : 0);
+    _recordKnownResults();
     _notify();
   }
 
@@ -228,7 +238,9 @@ class StudyController extends ChangeNotifier {
   /// original page). Skipped while local answers are unsaved.
   Future<bool> reloadFromServer({int questionNo = 0}) async {
     final session = _session;
-    if (session == null || unsavedCount > 0 || _inFlight.isNotEmpty) return false;
+    if (session == null || unsavedCount > 0 || _inFlight.isNotEmpty) {
+      return false;
+    }
     try {
       final fresh = await repository.startTrial(session.paper.id);
       if (_disposed || _session?.paper.id != session.paper.id) return false;
@@ -264,6 +276,7 @@ class StudyController extends ChangeNotifier {
     final target = _clampIndex(index);
     if (target == _index) return;
     _accrueTime();
+    PerformanceMetrics.instance.begin('Question render');
     _index = target;
     _questionEnteredAt = _clock();
     _notify();
@@ -296,7 +309,9 @@ class StudyController extends ChangeNotifier {
   /// updates immediately; the save follows after [saveDelay].
   void selectChoice(int choiceIndex) {
     final question = current;
-    if (question == null || isReadOnly || _submitting || isChecked(question)) return;
+    if (question == null || isReadOnly || _submitting || isChecked(question)) {
+      return;
+    }
     final content = question.question;
     if (content == null || !content.isMultipleChoice) return;
     if (choiceIndex < 0 || choiceIndex >= content.choices.length) return;
@@ -369,12 +384,14 @@ class StudyController extends ChangeNotifier {
     _notify();
 
     try {
-      final result = await _withSesskeyRecovery(() => repository.saveAnswers(
-            trialId: session.trial.id,
-            answers: updates,
-            trialTimeSpent: trialSeconds,
-            latestAccessQuestionNo: questionNumber,
-          ));
+      final result = await _withSesskeyRecovery(
+        () => repository.saveAnswers(
+          trialId: session.trial.id,
+          answers: updates,
+          trialTimeSpent: trialSeconds,
+          latestAccessQuestionNo: questionNumber,
+        ),
+      );
       if (_disposed || !identical(_session, session)) return;
       _inFlight.forEach((id, version) {
         if ((_savedVersion[id] ?? 0) < version) _savedVersion[id] = version;
@@ -382,6 +399,7 @@ class StudyController extends ChangeNotifier {
       });
       _status.addAll(result.statuses);
       _answerKey.addAll(result.answerKey);
+      _recordKnownResults();
       _saveError = null;
       _retryAttempt = 0;
       _lastSavedAt = _clock();
@@ -413,7 +431,9 @@ class StudyController extends ChangeNotifier {
     try {
       return await action();
     } on OqbApiException catch (error) {
-      if (error.code != 'missing_sesskey' && error.code != 'page_changed') rethrow;
+      if (error.code != 'missing_sesskey' && error.code != 'page_changed') {
+        rethrow;
+      }
       final session = _session;
       if (session == null) rethrow;
       final resumed = await repository.startTrial(session.paper.id);
@@ -473,12 +493,14 @@ class StudyController extends ChangeNotifier {
         for (final question in session.questions)
           if (isAnswered(question)) _updateFor(question),
       ];
-      await _withSesskeyRecovery(() => repository.submitTrial(
-            trialId: session.trial.id,
-            answers: answers,
-            trialTimeSpent: trialSeconds,
-            latestAccessQuestionNo: questionNumber,
-          ));
+      await _withSesskeyRecovery(
+        () => repository.submitTrial(
+          trialId: session.trial.id,
+          answers: answers,
+          trialTimeSpent: trialSeconds,
+          latestAccessQuestionNo: questionNumber,
+        ),
+      );
       if (_disposed) return;
       _submitted = true;
       _resetTimers();
@@ -488,6 +510,27 @@ class StudyController extends ChangeNotifier {
     } finally {
       _submitting = false;
       _notify();
+    }
+  }
+
+  void _recordKnownResults() {
+    final history = mistakes;
+    final session = _session;
+    if (history == null || session == null) return;
+    for (final q in session.questions) {
+      final key =
+          _answerKey[q.id] ?? (isReadOnly ? q.question?.suggestedAnswer : null);
+      final verdict = isReadOnly ? q.isCorrect : null;
+      if (verdict != null ||
+          (isReadOnly || isChecked(q)) && key != null && key.isNotEmpty) {
+        unawaited(
+          history.record(
+            session: session,
+            question: q,
+            correct: verdict ?? answerFor(q).sameAs(key!),
+          ),
+        );
+      }
     }
   }
 
@@ -501,13 +544,25 @@ class StudyController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (!_disposed) {
+      structure.value = (
+        _session,
+        _index,
+        _loadingPaperId,
+        _loadError,
+        _submitting,
+        _submitted,
+        _submitError,
+      );
+      notifyListeners();
+    }
   }
 
   @override
   void dispose() {
     _disposed = true;
     _resetTimers();
+    structure.dispose();
     super.dispose();
   }
 }
