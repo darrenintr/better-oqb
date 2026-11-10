@@ -6,6 +6,7 @@ import '../models/oqb_meta.dart';
 import '../models/oqb_review.dart';
 import '../models/oqb_trial.dart';
 import '../services/ask_ai.dart';
+import '../services/performance_metrics.dart';
 import '../services/ask_ai_images.dart';
 import '../theme/kiln_theme.dart';
 import '../theme/kiln_motion.dart';
@@ -67,11 +68,13 @@ class _StudyViewState extends State<StudyView> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.pageDown) {
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.pageDown) {
       _controller.next();
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.pageUp) {
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.pageUp) {
       _controller.previous();
       return KeyEventResult.handled;
     }
@@ -103,7 +106,9 @@ class _StudyViewState extends State<StudyView> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${controller.answeredCount} of ${controller.total} questions answered.'),
+            Text(
+              '${controller.answeredCount} of ${controller.total} questions answered.',
+            ),
             if (unanswered > 0) ...[
               const SizedBox(height: 8),
               Text(
@@ -113,7 +118,9 @@ class _StudyViewState extends State<StudyView> {
             ],
             if (unsaved > 0) ...[
               const SizedBox(height: 8),
-              Text('$unsaved answer${unsaved == 1 ? '' : 's'} will be saved first.'),
+              Text(
+                '$unsaved answer${unsaved == 1 ? '' : 's'} will be saved first.',
+              ),
             ],
             const SizedBox(height: 12),
             const Text('After submitting you cannot change your answers.'),
@@ -136,9 +143,9 @@ class _StudyViewState extends State<StudyView> {
       await onSubmit();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not submitted: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Not submitted: $error')));
     }
   }
 
@@ -183,22 +190,29 @@ class _StudyViewState extends State<StudyView> {
       if (handler != null) {
         final opened = await handler(prompt);
         if (!mounted) return;
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: Text(opened
-              ? 'Opening ChatGPT. The question is also on your clipboard.'
-              : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
-        ));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              opened
+                  ? 'Opening ChatGPT. The question is also on your clipboard.'
+                  : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.',
+            ),
+          ),
+        );
         return;
       }
       // Snapshot this question and answer before any asynchronous image work.
       final question = _controller.current;
       final content = question?.question;
-      if (question != null && content != null && questionNeedsImageShare(content)) {
+      if (question != null &&
+          content != null &&
+          questionNeedsImageShare(content)) {
         final correct = _controller.isReadOnly
             ? content.suggestedAnswer
             : _controller.answerKeyFor(question);
         if (correct == null || correct.isEmpty) return;
-        await showQuestionImageShare(context,
+        await showQuestionImageShare(
+          context,
           question: content,
           answer: _controller.answerFor(question),
           correct: correct,
@@ -211,16 +225,24 @@ class _StudyViewState extends State<StudyView> {
       }
       final opened = await openInChatGpt(prompt);
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-        content: Text(opened
-            ? 'Opening ChatGPT. The question is also on your clipboard.'
-            : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.'),
-      ));
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            opened
+                ? 'Opening ChatGPT. The question is also on your clipboard.'
+                : 'Could not open ChatGPT. The question was copied; paste it into any AI chat.',
+          ),
+        ),
+      );
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
-          content: Text('Could not prepare the question for AI. Please retry.'),
-        ));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not prepare the question for AI. Please retry.',
+            ),
+          ),
+        );
       }
     } finally {
       _askingAi = false;
@@ -234,11 +256,14 @@ class _StudyViewState extends State<StudyView> {
       autofocus: true,
       onKeyEvent: _onKey,
       child: ListenableBuilder(
-        listenable: _controller,
+        listenable: _controller.structure,
         builder: (context, _) {
           final question = _controller.current;
           if (question == null) {
-            return _EmptyTrial(onExit: widget.onExit, onOpenOriginal: widget.onOpenOriginal);
+            return _EmptyTrial(
+              onExit: widget.onExit,
+              onOpenOriginal: widget.onOpenOriginal,
+            );
           }
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -248,6 +273,7 @@ class _StudyViewState extends State<StudyView> {
               final compact = constraints.maxWidth < 600;
 
               final body = KilnFadeThrough(
+                duration: KilnMotion.quick,
                 child: _QuestionBody(
                   key: ValueKey(question.id),
                   controller: _controller,
@@ -264,20 +290,32 @@ class _StudyViewState extends State<StudyView> {
                 color: context.kiln.bg,
                 child: Column(
                   children: [
-                    _StudyHeader(
-                      controller: _controller,
-                      review: widget.review,
-                      compact: compact,
-                      wide: showPanel,
-                      onExit: widget.onExit,
-                      onSubmit: widget.onSubmit == null ? null : _confirmSubmit,
-                      onOpenOriginal: widget.onOpenOriginal,
-                      onOpenInspector: widget.onOpenInspector,
+                    ListenableBuilder(
+                      listenable: _controller,
+                      builder: (context, _) => _StudyHeader(
+                        controller: _controller,
+                        review: widget.review,
+                        compact: compact,
+                        wide: showPanel,
+                        onExit: widget.onExit,
+                        onSubmit:
+                            widget.onSubmit == null ? null : _confirmSubmit,
+                        onOpenOriginal: widget.onOpenOriginal,
+                        onOpenInspector: widget.onOpenInspector,
+                      ),
                     ),
-                    if (_controller.saveState == OqbSaveState.failed)
-                      _SaveFailedBanner(controller: _controller),
-                    if (_controller.submitError != null && !_controller.isSubmitting)
-                      _ErrorBanner(text: 'Submission failed: ${_controller.submitError}'),
+                    ListenableBuilder(
+                      listenable: _controller,
+                      builder: (context, _) =>
+                          _controller.saveState == OqbSaveState.failed
+                              ? _SaveFailedBanner(controller: _controller)
+                              : const SizedBox.shrink(),
+                    ),
+                    if (_controller.submitError != null &&
+                        !_controller.isSubmitting)
+                      _ErrorBanner(
+                        text: 'Submission failed: ${_controller.submitError}',
+                      ),
                     Expanded(
                       child: showPanel
                           ? Row(
@@ -285,10 +323,13 @@ class _StudyViewState extends State<StudyView> {
                               children: [
                                 SizedBox(
                                   width: 300,
-                                  child: _SidePanel(
-                                    controller: _controller,
-                                    review: widget.review,
-                                    meta: widget.meta,
+                                  child: ListenableBuilder(
+                                    listenable: _controller,
+                                    builder: (context, _) => _SidePanel(
+                                      controller: _controller,
+                                      review: widget.review,
+                                      meta: widget.meta,
+                                    ),
                                   ),
                                 ),
                                 const VerticalDivider(width: 1),
@@ -297,11 +338,14 @@ class _StudyViewState extends State<StudyView> {
                             )
                           : body,
                     ),
-                    _BottomBar(
-                      controller: _controller,
-                      compact: compact,
-                      showNavigatorButton: !showPanel,
-                      onOpenNavigator: _openNavigatorSheet,
+                    ListenableBuilder(
+                      listenable: _controller,
+                      builder: (context, _) => _BottomBar(
+                        controller: _controller,
+                        compact: compact,
+                        showNavigatorButton: !showPanel,
+                        onOpenNavigator: _openNavigatorSheet,
+                      ),
                     ),
                   ],
                 ),
@@ -344,7 +388,9 @@ class _StudyHeader extends StatelessWidget {
     final text = context.kilnText;
     final session = controller.session!;
     final total = controller.total;
-    final title = session.paper.title.isNotEmpty ? session.paper.title : 'Paper ${session.paper.id}';
+    final title = session.paper.title.isNotEmpty
+        ? session.paper.title
+        : 'Paper ${session.paper.id}';
     final progress = total == 0 ? 0.0 : controller.answeredCount / total;
 
     final subtitle = review != null
@@ -357,7 +403,12 @@ class _StudyHeader extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(compact ? 4 : 12, 8, compact ? 4 : 16, 8),
+            padding: EdgeInsets.fromLTRB(
+              compact ? 4 : 12,
+              8,
+              compact ? 4 : 16,
+              8,
+            ),
             child: Row(
               children: [
                 IconButton(
@@ -381,16 +432,32 @@ class _StudyHeader extends StatelessWidget {
                           fontVariations: KilnFonts.weight(FontWeight.w400),
                         ),
                       ),
-                      Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.caption),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.caption,
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (!controller.isReadOnly) _SaveIndicator(controller: controller, compact: compact),
+                if (!controller.isReadOnly)
+                  _SaveIndicator(controller: controller, compact: compact),
                 if (review != null)
-                  KilnPill(icon: Icons.fact_check_outlined, label: 'Review', background: k.oat, showLabel: !compact),
+                  KilnPill(
+                    icon: Icons.fact_check_outlined,
+                    label: 'Review',
+                    background: k.oat,
+                    showLabel: !compact,
+                  ),
                 if (controller.isSubmitted && review == null)
-                  KilnPill(icon: Icons.check_circle_outline, label: 'Submitted', background: k.oat, showLabel: !compact),
+                  KilnPill(
+                    icon: Icons.check_circle_outline,
+                    label: 'Submitted',
+                    background: k.oat,
+                    showLabel: !compact,
+                  ),
                 if (wide) ...[
                   const SizedBox(width: 4),
                   TextButton.icon(
@@ -412,7 +479,11 @@ class _StudyHeader extends StatelessWidget {
                       : FilledButton(
                           onPressed: onSubmit,
                           style: compact
-                              ? FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14))
+                              ? FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                )
                               : null,
                           child: const Text('Submit'),
                         ),
@@ -458,15 +529,17 @@ class _StudyHeader extends StatelessWidget {
     final score = review.score;
     final full = review.scoreFull;
     final parts = <String>[
-      if (score != null) 'Score ${_fmt(score)}${full != null ? '/${_fmt(full)}' : ''}',
+      if (score != null)
+        'Score ${_fmt(score)}${full != null ? '/${_fmt(full)}' : ''}',
       if (review.hasCorrectness) '${review.correct}/${review.total} correct',
     ];
     return parts.isEmpty ? 'Submitted attempt' : parts.join(' · ');
   }
 }
 
-String _fmt(num value) =>
-    value == value.roundToDouble() ? value.toInt().toString() : value.toStringAsFixed(1);
+String _fmt(num value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(1);
 
 class _SaveIndicator extends StatelessWidget {
   const _SaveIndicator({required this.controller, required this.compact});
@@ -477,15 +550,27 @@ class _SaveIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = context.kiln;
-    final (IconData icon, String label, Color color) = switch (controller.saveState) {
+    final (
+      IconData icon,
+      String label,
+      Color color,
+    ) = switch (controller.saveState) {
       OqbSaveState.saved => (
           Icons.cloud_done_outlined,
           controller.lastSavedAt == null ? 'Synced' : 'Saved',
           k.successText,
         ),
       OqbSaveState.pending => (Icons.cloud_queue, 'Unsaved', k.inkMuted),
-      OqbSaveState.saving => (Icons.cloud_upload_outlined, 'Saving…', k.inkMuted),
-      OqbSaveState.failed => (Icons.cloud_off_outlined, 'Not saved', k.dangerText),
+      OqbSaveState.saving => (
+          Icons.cloud_upload_outlined,
+          'Saving…',
+          k.inkMuted,
+        ),
+      OqbSaveState.failed => (
+          Icons.cloud_off_outlined,
+          'Not saved',
+          k.dangerText,
+        ),
     };
     return Tooltip(
       message: switch (controller.saveState) {
@@ -524,7 +609,8 @@ class _SaveFailedBanner extends StatelessWidget {
       danger: true,
       icon: Icons.cloud_off_outlined,
       title: '${controller.unsavedCount} answer(s) not saved yet',
-      message: 'They are kept here until OQB accepts them. (${controller.saveError})',
+      message:
+          'They are kept here until OQB accepts them. (${controller.saveError})',
       action: OutlinedButton(
         onPressed: controller.retryNow,
         child: const Text('Retry'),
@@ -550,7 +636,11 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _SidePanel extends StatelessWidget {
-  const _SidePanel({required this.controller, required this.review, required this.meta});
+  const _SidePanel({
+    required this.controller,
+    required this.review,
+    required this.meta,
+  });
 
   final StudyController controller;
   final OqbReview? review;
@@ -577,12 +667,18 @@ class _SidePanel extends StatelessWidget {
                 textBaseline: TextBaseline.alphabetic,
                 children: [
                   Expanded(child: Text('Questions', style: text.label)),
-                  Text('${controller.answeredCount} of ${controller.total} answered', style: text.caption),
+                  Text(
+                    '${controller.answeredCount} of ${controller.total} answered',
+                    style: text.caption,
+                  ),
                 ],
               ),
               if (session.paper.subjectCode.isNotEmpty) ...[
                 const SizedBox(height: 2),
-                Text(meta.label(session.paper.subjectCode), style: text.caption),
+                Text(
+                  meta.label(session.paper.subjectCode),
+                  style: text.caption,
+                ),
               ],
               const SizedBox(height: 16),
             ],
@@ -621,13 +717,23 @@ class _ReviewSummary extends StatelessWidget {
                 if (score != null)
                   _Stat(
                     label: 'Score',
-                    value: '${_fmt(score)}${full != null ? ' / ${_fmt(full)}' : ''}',
+                    value:
+                        '${_fmt(score)}${full != null ? ' / ${_fmt(full)}' : ''}',
                   ),
                 if (review.hasCorrectness)
-                  _Stat(label: 'Correct', value: '${review.correct} / ${review.total}'),
-                _Stat(label: 'Answered', value: '${review.answered} / ${review.total}'),
+                  _Stat(
+                    label: 'Correct',
+                    value: '${review.correct} / ${review.total}',
+                  ),
+                _Stat(
+                  label: 'Answered',
+                  value: '${review.answered} / ${review.total}',
+                ),
                 if (review.session.trial.timeSpent > 0)
-                  _Stat(label: 'Time', value: _duration(review.session.trial.timeSpent)),
+                  _Stat(
+                    label: 'Time',
+                    value: _duration(review.session.trial.timeSpent),
+                  ),
               ],
             ),
             if (review.hasCorrectness && review.byTopic.isNotEmpty) ...[
@@ -635,14 +741,22 @@ class _ReviewSummary extends StatelessWidget {
               Text('By topic', style: text.label),
               const SizedBox(height: 8),
               for (final row in review.byTopic)
-                _BreakdownBar(label: meta.label(row.key), row: row, color: k.olive),
+                _BreakdownBar(
+                  label: meta.label(row.key),
+                  row: row,
+                  color: k.olive,
+                ),
             ],
             if (review.hasCorrectness && review.byDifficulty.length > 1) ...[
               const SizedBox(height: 10),
               Text('By difficulty', style: text.label),
               const SizedBox(height: 8),
               for (final row in review.byDifficulty)
-                _BreakdownBar(label: meta.difficulty(int.tryParse(row.key) ?? 0), row: row, color: k.sky),
+                _BreakdownBar(
+                  label: meta.difficulty(int.tryParse(row.key) ?? 0),
+                  row: row,
+                  color: k.sky,
+                ),
             ],
           ],
         ),
@@ -654,7 +768,9 @@ class _ReviewSummary extends StatelessWidget {
     final minutes = seconds ~/ 60;
     if (minutes == 0) return '${seconds}s';
     final hours = minutes ~/ 60;
-    return hours > 0 ? '${hours}h ${minutes % 60}m' : '${minutes}m ${seconds % 60}s';
+    return hours > 0
+        ? '${hours}h ${minutes % 60}m'
+        : '${minutes}m ${seconds % 60}s';
   }
 }
 
@@ -697,7 +813,11 @@ class _Stat extends StatelessWidget {
 }
 
 class _BreakdownBar extends StatelessWidget {
-  const _BreakdownBar({required this.label, required this.row, required this.color});
+  const _BreakdownBar({
+    required this.label,
+    required this.row,
+    required this.color,
+  });
 
   final String label;
   final OqbBreakdownRow row;
@@ -714,7 +834,12 @@ class _BreakdownBar extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.caption.copyWith(color: context.kiln.ink)),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.caption.copyWith(color: context.kiln.ink),
+                ),
               ),
               Text('${row.correct}/${row.total}', style: text.caption),
             ],
@@ -754,6 +879,8 @@ class _QuestionBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => PerformanceMetrics.instance.end('Question render'));
     final padding = compact ? 16.0 : 32.0;
     final stem = _QuestionStem(
       controller: controller,
@@ -762,11 +889,14 @@ class _QuestionBody extends StatelessWidget {
       compact: compact,
       onOpenOriginal: onOpenOriginal,
     );
-    final answers = _AnswerSection(
-      controller: controller,
-      question: question,
-      meta: meta,
-      onAskAi: onAskAi,
+    final answers = ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => _AnswerSection(
+        controller: controller,
+        question: question,
+        meta: meta,
+        onAskAi: onAskAi,
+      ),
     );
 
     if (twoColumns) {
@@ -838,7 +968,9 @@ class _QuestionStem extends StatelessWidget {
     final text = context.kilnText;
     final content = question.question;
     final year = content != null && content.year.isNotEmpty
-        ? (content.questionNo.isNotEmpty ? '${content.year} Q${content.questionNo}' : content.year)
+        ? (content.questionNo.isNotEmpty
+            ? '${content.year} Q${content.questionNo}'
+            : content.year)
         : null;
 
     return Column(
@@ -855,8 +987,10 @@ class _QuestionStem extends StatelessWidget {
             ),
             if (year != null) KilnTag(year),
             if (content != null)
-              for (final topic in content.topicCodes.take(2)) KilnTag(meta.label(topic), outlined: true),
-            if (content != null && content.difficultyCode > 0) KilnTag(meta.difficulty(content.difficultyCode)),
+              for (final topic in content.topicCodes.take(2))
+                KilnTag(meta.label(topic), outlined: true),
+            if (content != null && content.difficultyCode > 0)
+              KilnTag(meta.difficulty(content.difficultyCode)),
           ],
         ),
         const SizedBox(height: 16),
@@ -887,7 +1021,10 @@ class _QuestionStem extends StatelessWidget {
                   ),
           ],
           if (content.displayContent.trim().isEmpty && content.url.isEmpty)
-            _Notice(text: 'This question has no text content.', onOpenOriginal: onOpenOriginal),
+            _Notice(
+              text: 'This question has no text content.',
+              onOpenOriginal: onOpenOriginal,
+            ),
         ],
       ],
     );
@@ -905,7 +1042,10 @@ class _Notice extends StatelessWidget {
     return KilnBanner(
       icon: Icons.info_outline,
       title: text,
-      action: TextButton(onPressed: onOpenOriginal, child: const Text('Original OQB')),
+      action: TextButton(
+        onPressed: onOpenOriginal,
+        child: const Text('Original OQB'),
+      ),
     );
   }
 }
@@ -931,7 +1071,9 @@ class _AnswerSection extends StatelessWidget {
     final answer = controller.answerFor(question);
     final review = controller.isReadOnly;
     final shown = !review && controller.isAnswerShown(question);
-    final key = review ? content?.suggestedAnswer : (shown ? controller.answerKeyFor(question) : null);
+    final key = review
+        ? content?.suggestedAnswer
+        : (shown ? controller.answerKeyFor(question) : null);
 
     if (content == null || !content.isMultipleChoice) {
       return Container(
@@ -968,7 +1110,9 @@ class _AnswerSection extends StatelessWidget {
             choice: choice,
             selected: answer.choices.contains(choice.index),
             correct: key?.choices.contains(choice.index),
-            enabled: !review && !controller.isSubmitting && !controller.isChecked(question),
+            enabled: !review &&
+                !controller.isSubmitting &&
+                !controller.isChecked(question),
             onTap: () => controller.selectChoice(choice.index),
           ),
           const SizedBox(height: 10),
@@ -976,25 +1120,36 @@ class _AnswerSection extends StatelessWidget {
         if (shown)
           _verdict(
             context,
-            answer.isEmpty ? 'Not answered' : (answer.sameAs(key!) ? 'Correct' : 'Incorrect'),
+            answer.isEmpty
+                ? 'Not answered'
+                : (answer.sameAs(key!) ? 'Correct' : 'Incorrect'),
             answer.isNotEmpty && answer.sameAs(key!),
           ),
         if (controller.canShowAnswer(question)) _showAnswerButton(context),
         if (review) ..._reviewExtras(context, content),
-        if (key != null && key.isNotEmpty && !answer.sameAs(key)) _askAiButton(content, answer, key),
+        if (key != null && key.isNotEmpty && !answer.sameAs(key))
+          _askAiButton(content, answer, key),
       ],
     );
   }
 
   /// Shown once the correct answer is known and the learner's answer is
   /// wrong (or missing). Image questions use a real image attachment flow.
-  Widget _askAiButton(OqbQuestionContent content, OqbUserInput answer, OqbUserInput key) {
+  Widget _askAiButton(
+    OqbQuestionContent content,
+    OqbUserInput answer,
+    OqbUserInput key,
+  ) {
     final prompt = AskAiPrompt.forQuestion(
       content: content,
       answer: answer,
       correct: key,
-      subject: content.subjectCode.isEmpty ? '' : meta.label(content.subjectCode, preferEnglish: true),
-      topic: content.topicCodes.map((code) => meta.label(code, preferEnglish: true)).join(', '),
+      subject: content.subjectCode.isEmpty
+          ? ''
+          : meta.label(content.subjectCode, preferEnglish: true),
+      topic: content.topicCodes
+          .map((code) => meta.label(code, preferEnglish: true))
+          .join(', '),
     );
     if (prompt == null) return const SizedBox.shrink();
     return Align(
@@ -1010,7 +1165,12 @@ class _AnswerSection extends StatelessWidget {
     );
   }
 
-  Widget _verdict(BuildContext context, String label, bool correct, {num? score}) {
+  Widget _verdict(
+    BuildContext context,
+    String label,
+    bool correct, {
+    num? score,
+  }) {
     final k = context.kiln;
     final text = context.kilnText;
     final color = correct ? k.successText : k.dangerText;
@@ -1018,7 +1178,11 @@ class _AnswerSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(correct ? Icons.check_circle : Icons.cancel, color: color, size: 22),
+          Icon(
+            correct ? Icons.check_circle : Icons.cancel,
+            color: color,
+            size: 22,
+          ),
           const SizedBox(width: 8),
           Text(label, style: text.label.copyWith(fontSize: 17, color: color)),
           if (score != null) ...[
@@ -1032,8 +1196,11 @@ class _AnswerSection extends StatelessWidget {
 
   Widget _showAnswerButton(BuildContext context) {
     final checking = controller.isChecked(question);
-    final failed = checking && controller.saveStateFor(question) == OqbSaveState.failed;
-    final busy = checking && !failed && controller.saveStateFor(question) != OqbSaveState.saved;
+    final failed =
+        checking && controller.saveStateFor(question) == OqbSaveState.failed;
+    final busy = checking &&
+        !failed &&
+        controller.saveStateFor(question) != OqbSaveState.saved;
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
@@ -1064,40 +1231,49 @@ class _AnswerSection extends StatelessWidget {
     );
   }
 
-  List<Widget> _reviewExtras(BuildContext context, OqbQuestionContent? content) {
+  List<Widget> _reviewExtras(
+    BuildContext context,
+    OqbQuestionContent? content,
+  ) {
     final k = context.kiln;
     final text = context.kilnText;
     final widgets = <Widget>[];
     final verdict = question.isCorrect;
     if (verdict != null) {
-      widgets.add(_verdict(
-        context,
-        controller.isAnswered(question) ? (verdict ? 'Correct' : 'Incorrect') : 'Not answered',
-        verdict,
-        score: question.score,
-      ));
+      widgets.add(
+        _verdict(
+          context,
+          controller.isAnswered(question)
+              ? (verdict ? 'Correct' : 'Incorrect')
+              : 'Not answered',
+          verdict,
+          score: question.score,
+        ),
+      );
     }
     for (final (title, html) in [
       ('Model answer', content?.modelAnswer ?? ''),
       ('Feedback', content?.feedback ?? ''),
     ]) {
       if (html.trim().isEmpty) continue;
-      widgets.add(Container(
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: k.surface,
-          borderRadius: BorderRadius.circular(KilnRadius.md),
+      widgets.add(
+        Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: k.surface,
+            borderRadius: BorderRadius.circular(KilnRadius.md),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: text.label),
+              const SizedBox(height: 8),
+              OqbHtml(html, textStyle: text.prose),
+            ],
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(title, style: text.label),
-            const SizedBox(height: 8),
-            OqbHtml(html, textStyle: text.prose),
-          ],
-        ),
-      ));
+      );
     }
     return widgets;
   }
@@ -1145,7 +1321,11 @@ class _AnswerCard extends StatelessWidget {
       badge = k.successText;
       badgeText = k.bg;
       border = BorderSide(color: k.successText, width: 2);
-      verdict = (Icons.check_circle, selected ? 'Your answer' : 'Answer', k.successText);
+      verdict = (
+        Icons.check_circle,
+        selected ? 'Your answer' : 'Answer',
+        k.successText,
+      );
       semantics += ', correct answer';
     } else if (correct == false && selected) {
       background = k.surfaceRaised;
@@ -1173,69 +1353,79 @@ class _AnswerCard extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: enabled ? onTap : null,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 56),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AnimatedContainer(
-                    duration: KilnMotion.duration(context, KilnMotion.quick),
-                    curve: KilnMotion.enter,
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: badge,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      choice.label,
-                      style: text.label.copyWith(
-                        color: badgeText,
-                        fontWeight: FontWeight.w600,
-                        fontVariations: KilnFonts.weight(FontWeight.w600),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 56),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnimatedContainer(
+                      duration: KilnMotion.duration(context, KilnMotion.quick),
+                      curve: KilnMotion.enter,
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: badge,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        choice.label,
+                        style: text.label.copyWith(
+                          color: badgeText,
+                          fontWeight: FontWeight.w600,
+                          fontVariations: KilnFonts.weight(FontWeight.w600),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          OqbHtml(
-                            choice.displayHtml,
-                            textStyle: text.prose.copyWith(height: 26 / 18),
-                          ),
-                          if (choice.imageUrl.isNotEmpty) ...[
-                            if (choice.displayHtml.trim().isNotEmpty) const SizedBox(height: 8),
-                            OqbImage(url: resolveOqbUrl(choice.imageUrl)),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            OqbHtml(
+                              choice.displayHtml,
+                              textStyle: text.prose.copyWith(height: 26 / 18),
+                            ),
+                            if (choice.imageUrl.isNotEmpty) ...[
+                              if (choice.displayHtml.trim().isNotEmpty)
+                                const SizedBox(height: 8),
+                              OqbImage(url: resolveOqbUrl(choice.imageUrl)),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  if (verdict != null) ...[
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(verdict.$1, size: 18, color: verdict.$3),
-                          const SizedBox(width: 4),
-                          Text(verdict.$2, style: text.label.copyWith(fontSize: 13, color: verdict.$3)),
-                        ],
+                    if (verdict != null) ...[
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(verdict.$1, size: 18, color: verdict.$3),
+                            const SizedBox(width: 4),
+                            Text(
+                              verdict.$2,
+                              style: text.label.copyWith(
+                                fontSize: 13,
+                                color: verdict.$3,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
           ),
         ),
       ),
@@ -1271,18 +1461,25 @@ class _BottomBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 24, vertical: 10),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 24,
+            vertical: 10,
+          ),
           child: Row(
             children: [
               compact
                   ? IconButton.outlined(
                       tooltip: 'Previous question',
-                      onPressed: controller.hasPrevious ? controller.previous : null,
-                      style: IconButton.styleFrom(side: BorderSide(color: k.borderControl)),
+                      onPressed:
+                          controller.hasPrevious ? controller.previous : null,
+                      style: IconButton.styleFrom(
+                        side: BorderSide(color: k.borderControl),
+                      ),
                       icon: const Icon(Icons.chevron_left),
                     )
                   : OutlinedButton.icon(
-                      onPressed: controller.hasPrevious ? controller.previous : null,
+                      onPressed:
+                          controller.hasPrevious ? controller.previous : null,
                       icon: const Icon(Icons.chevron_left),
                       label: const Text('Previous'),
                     ),
@@ -1298,9 +1495,16 @@ class _BottomBar extends StatelessWidget {
                             minimumSize: const Size(120, 44),
                           ),
                           icon: const Icon(Icons.grid_view_rounded, size: 18),
-                          label: Text(position),
+                          label: Semantics(
+                            label:
+                                'Question ${controller.questionNumber} of ${controller.total}',
+                            child: Text(position),
+                          ),
                         )
-                      : Text(position, style: text.body.copyWith(color: k.inkMuted)),
+                      : Text(
+                          position,
+                          style: text.body.copyWith(color: k.inkMuted),
+                        ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1353,8 +1557,14 @@ class _EmptyTrial extends StatelessWidget {
               spacing: 12,
               runSpacing: 8,
               children: [
-                OutlinedButton(onPressed: onExit, child: const Text('Back to papers')),
-                FilledButton(onPressed: onOpenOriginal, child: const Text('Open original OQB')),
+                OutlinedButton(
+                  onPressed: onExit,
+                  child: const Text('Back to papers'),
+                ),
+                FilledButton(
+                  onPressed: onOpenOriginal,
+                  child: const Text('Open original OQB'),
+                ),
               ],
             ),
           ],

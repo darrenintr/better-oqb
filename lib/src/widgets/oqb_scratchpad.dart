@@ -5,6 +5,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../services/scratchpad_storage.dart';
+import '../services/performance_metrics.dart';
+import '../services/pencil_interactions.dart';
+import 'scratchpad/ink_controller.dart';
+import 'scratchpad/ink_model.dart';
+import 'scratchpad/ink_painter.dart';
+import 'scratchpad/ink_storage.dart';
+import 'scratchpad/ink_gesture_detector.dart';
 
 /// Pencil-first, per-question working on a scrollable fixed-aspect page.
 class OqbScratchpad extends StatefulWidget {
@@ -23,65 +30,36 @@ class OqbScratchpad extends StatefulWidget {
   State<OqbScratchpad> createState() => _OqbScratchpadState();
 }
 
-enum _Tool { pen, eraser }
-enum _Paper { plain, grid, ruled }
-
-class _Stroke {
-  _Stroke(this.color, this.width, this.points);
-  final Color color;
-  final double width;
-  final List<Offset> points;
-
-  Map<String, Object> toJson() => {
-        'color': color.toARGB32(),
-        'width': width,
-        'points': [for (final p in points) [p.dx, p.dy]],
-      };
-
-  factory _Stroke.parse(dynamic raw) {
-    if (raw is! Map || raw['points'] is! List ||
-        raw['color'] is! num || raw['width'] is! num) {
-      throw const FormatException('Invalid stroke');
-    }
-    final points = <Offset>[];
-    for (final value in raw['points'] as List) {
-      if (value is! List || value.length != 2 ||
-          value[0] is! num || value[1] is! num) {
-        throw const FormatException('Invalid point');
-      }
-      final x = (value[0] as num).toDouble();
-      final y = (value[1] as num).toDouble();
-      if (!x.isFinite || !y.isFinite) {
-        throw const FormatException('Non-finite point');
-      }
-      points.add(Offset(x, y));
-    }
-    final width = (raw['width'] as num).toDouble();
-    if (!width.isFinite || width <= 0) {
-      throw const FormatException('Invalid width');
-    }
-    return _Stroke(Color((raw['color'] as num).toInt()), width, points);
-  }
-}
+enum _Tool { pen, eraser, segmentEraser, lasso }
 
 class _OqbScratchpadState extends State<OqbScratchpad>
     with WidgetsBindingObserver {
   static const _pageWidth = 800.0;
   static const _pageHeight = 1800.0;
   static const _colors = <Color>[
-    Color(0xFF263341), Color(0xFF3E69AB),
-    Color(0xFFC34C45), Color(0xFF398068),
+    Color(0xFF263341),
+    Color(0xFF3E69AB),
+    Color(0xFFC34C45),
+    Color(0xFF398068),
   ];
 
+  StreamSubscription<String>? _pencilSubscription;
   final _scroll = ScrollController();
-  final _undo = <List<_Stroke>>[];
-  final _redo = <List<_Stroke>>[];
-  List<_Stroke> _strokes = [];
+  final _inkController = InkController();
+  Timer? _saveTimer;
+  Offset? _hover;
+  List<Offset> _lasso = [];
+  Rect? _selection;
+  Set<InkStroke> _selected = {};
+  Offset? _dragStart;
+  Offset? _lastErase;
+  double _inputScale = 1;
+  bool _transformSelection = false;
   late ScratchpadStorage _storage;
   late String _documentKey;
   _Tool _tool = _Tool.pen;
   _Tool _activeTool = _Tool.pen;
-  _Paper _paper = _Paper.grid;
+  InkPaper _paper = InkPaper.grid;
   Color _ink = _colors.first;
   double _width = 3.5;
   bool _fingerDrawing = false;
@@ -98,6 +76,14 @@ class _OqbScratchpadState extends State<OqbScratchpad>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _inkController.addListener(_inkChanged);
+    _pencilSubscription = PencilInteractions.listen((event) {
+      if (!mounted || _disposed || _pointer != null) return;
+      if (event == 'toggleEraser') {
+        setState(() => _tool = _tool == _Tool.pen ? _Tool.eraser : _Tool.pen);
+      }
+      if (event == 'palette') _showPalette();
+    });
     _storage = widget.storage ?? FileScratchpadStorage.instance;
     _documentKey = '${widget.paperId}_${widget.questionId}';
     unawaited(_load());
@@ -109,14 +95,15 @@ class _OqbScratchpadState extends State<OqbScratchpad>
     if (oldWidget.paperId != widget.paperId ||
         oldWidget.questionId != widget.questionId ||
         oldWidget.storage != widget.storage) {
+      _finishInput();
       unawaited(_save());
       _generation++;
       _storage = widget.storage ?? FileScratchpadStorage.instance;
       _documentKey = '${widget.paperId}_${widget.questionId}';
       _pointer = null;
-      _strokes = [];
-      _undo.clear();
-      _redo.clear();
+      _inkController.load([]);
+      _selection = null;
+      _selected = {};
       _loading = true;
       _loadFailed = false;
       _saveFailed = false;
@@ -129,26 +116,35 @@ class _OqbScratchpadState extends State<OqbScratchpad>
   Future<void> _load() async {
     final generation = _generation;
     try {
-      final text = await _storage.read(_documentKey);
-      final strokes = <_Stroke>[];
-      var paper = _Paper.grid;
+      final text = await InkDocumentStorage.read(_storage, _documentKey);
+      final strokes = <InkStroke>[];
+      var paper = InkPaper.grid;
       var finger = false;
       if (text != null) {
         final data = jsonDecode(text);
-        if (data is! Map || data['version'] != 1 || data['strokes'] is! List) {
+        if (data is! Map ||
+            (data['version'] != 1 && data['version'] != 2) ||
+            data['strokes'] is! List) {
           throw const FormatException('Invalid working document');
         }
         for (final raw in data['strokes'] as List) {
-          strokes.add(_Stroke.parse(raw));
+          strokes.add(InkStroke.parse(raw));
         }
-        for (final candidate in _Paper.values) {
+        for (final candidate in InkPaper.values) {
           if (candidate.name == data['paper']) paper = candidate;
         }
         finger = data['finger'] == true;
+        if (generation == _generation) {
+          _inkController.holdToSnap = data['holdToSnap'] != false;
+          _inkController.scratchToErase = data['scratchToErase'] != false;
+          _inkController.sensitivity = InkPressure.values.firstWhere(
+              (v) => v.name == data['pressure'],
+              orElse: () => InkPressure.low);
+        }
       }
       if (!mounted || _disposed || generation != _generation) return;
       setState(() {
-        _strokes = strokes;
+        _inkController.load(strokes);
         _paper = paper;
         _fingerDrawing = finger;
         _loading = false;
@@ -156,158 +152,312 @@ class _OqbScratchpadState extends State<OqbScratchpad>
       });
     } catch (_) {
       if (mounted && !_disposed && generation == _generation) {
-        setState(() { _loading = false; _loadFailed = true; });
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
       }
     }
   }
 
   Future<void> _save() async {
+    _saveTimer?.cancel();
     if (_loading || _loadFailed || !_dirty) return;
     final key = _documentKey;
     final storage = _storage;
     final generation = _generation;
     final serial = ++_saveSerial;
-    final text = jsonEncode({
-      'version': 1,
-      'strokes': [for (final stroke in _strokes) stroke.toJson()],
+    final document = <String, dynamic>{
+      'version': 2,
+      'strokes': [for (final stroke in _inkController.strokes) stroke.toJson()],
       'paper': _paper.name,
       'finger': _fingerDrawing,
-    });
+      'pressure': _inkController.sensitivity.name,
+      'holdToSnap': _inkController.holdToSnap,
+      'scratchToErase': _inkController.scratchToErase,
+    };
     _dirty = false;
     try {
-      await storage.write(key, text);
-      if (mounted && !_disposed && generation == _generation && serial == _saveSerial) {
+      await PerformanceMetrics.instance.measure(
+          'Ink save', () => InkDocumentStorage.write(storage, key, document));
+      if (mounted &&
+          !_disposed &&
+          generation == _generation &&
+          serial == _saveSerial) {
         setState(() => _saveFailed = false);
       }
     } catch (_) {
-      if (mounted && !_disposed && generation == _generation && serial == _saveSerial) {
-        setState(() { _saveFailed = true; _dirty = true; });
+      if (mounted &&
+          !_disposed &&
+          generation == _generation &&
+          serial == _saveSerial) {
+        setState(() {
+          _saveFailed = true;
+          _dirty = true;
+        });
       }
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) unawaited(_save());
+    if (state != AppLifecycleState.resumed) {
+      _finishInput();
+      unawaited(_save());
+    }
   }
 
   @override
   void deactivate() {
     // Includes closing working or changing question while the Pencil is down.
+    _finishInput();
     unawaited(_save());
     super.deactivate();
   }
 
   @override
   void dispose() {
+    _finishInput();
     _disposed = true;
     unawaited(_save());
+    _saveTimer?.cancel();
+    _inkController.removeListener(_inkChanged);
+    _inkController.dispose();
+    if (_pencilSubscription != null) {
+      unawaited(PencilInteractions.release(_pencilSubscription!));
+    }
     WidgetsBinding.instance.removeObserver(this);
     _scroll.dispose();
     super.dispose();
   }
 
-  void _remember() {
-    _undo.add(List<_Stroke>.from(_strokes));
-    if (_undo.length > 40) _undo.removeAt(0);
-    _redo.clear();
+  void _inkChanged() {
+    if (_loading || _disposed) return;
+    if (_selected.isNotEmpty) {
+      _selected = _selected.intersection(_inkController.strokes.toSet());
+    }
+    if (_selected.isEmpty && _tool != _Tool.lasso) _selection = null;
     _dirty = true;
+    PerformanceMetrics.instance.count('Strokes', _inkController.strokes.length);
+    if (_pointer == null) _scheduleSave();
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(
+      const Duration(milliseconds: 650),
+      () => unawaited(_save()),
+    );
   }
 
   void _undoStroke() {
-    if (_undo.isEmpty || _pointer != null) return;
-    setState(() {
-      _redo.add(List<_Stroke>.from(_strokes));
-      _strokes = _undo.removeLast();
-      _dirty = true;
-    });
-    unawaited(_save());
+    _inkController.undo();
+    setState(() {});
+    _scheduleSave();
   }
 
   void _redoStroke() {
-    if (_redo.isEmpty || _pointer != null) return;
-    setState(() {
-      _undo.add(List<_Stroke>.from(_strokes));
-      _strokes = _redo.removeLast();
-      _dirty = true;
-    });
-    unawaited(_save());
+    _inkController.redo();
+    setState(() {});
+    _scheduleSave();
   }
 
   void _clear() {
-    if (_strokes.isEmpty || _pointer != null) return;
-    _remember();
-    setState(() => _strokes = []);
-    unawaited(_save());
+    if (_pointer != null) return;
+    _inkController.replace(_inkController.strokes.toSet(), []);
+    setState(() {});
+    _scheduleSave();
   }
 
-  bool _accept(PointerEvent event) => !_loading && !_loadFailed &&
+  void _finishInput() {
+    if (_pointer == null) return;
+    if (_activeTool == _Tool.pen) {
+      _inkController.finish(allowScratch: false);
+    }
+    if (_activeTool == _Tool.eraser || _activeTool == _Tool.segmentEraser) {
+      _inkController.endErase();
+    }
+    _pointer = null;
+  }
+
+  bool _accept(PointerEvent event) =>
+      !_loading &&
+      !_loadFailed &&
       (event.kind == PointerDeviceKind.stylus ||
-       event.kind == PointerDeviceKind.invertedStylus ||
-       event.kind == PointerDeviceKind.mouse ||
-       (_fingerDrawing && event.kind == PointerDeviceKind.touch));
+          event.kind == PointerDeviceKind.invertedStylus ||
+          event.kind == PointerDeviceKind.mouse ||
+          (_fingerDrawing && event.kind == PointerDeviceKind.touch));
 
   Offset _point(Offset local, double scale) => Offset(
         (local.dx / scale).clamp(0.0, _pageWidth).toDouble(),
         (local.dy / scale).clamp(0.0, _pageHeight).toDouble(),
       );
 
+  double _pressure(PointerEvent event) =>
+      event.kind == PointerDeviceKind.mouse ||
+              event.pressureMax <= event.pressureMin
+          ? .5
+          : ((event.pressure - event.pressureMin) /
+                  (event.pressureMax - event.pressureMin))
+              .clamp(0.0, 1.0);
+
   void _down(PointerDownEvent event, double scale) {
-    // A queued pointer event can outlive a question's scratchpad widget.
     if (!mounted || _disposed || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
-    _activeTool = event.kind == PointerDeviceKind.invertedStylus ? _Tool.eraser : _tool;
-    _remember();
+    _inputScale = scale;
+    _activeTool =
+        event.kind == PointerDeviceKind.invertedStylus ? _Tool.eraser : _tool;
     final p = _point(event.localPosition, scale);
-    setState(() {
-      if (_activeTool == _Tool.pen) {
-        _strokes.add(_Stroke(_ink, _width, [p]));
-      } else {
-        _erase(p, 14 / scale);
+    _hover = null;
+    if (_activeTool == _Tool.pen) {
+      _inkController.color = _ink;
+      _inkController.width = _width;
+      _inkController.reducedMotion = MediaQuery.disableAnimationsOf(context);
+      _inkController.begin(p, pressure: _pressure(event));
+    } else if (_activeTool == _Tool.lasso) {
+      _dragStart = p;
+      _transformSelection =
+          _selection?.contains(p) == true && _selected.isNotEmpty;
+      if (!_transformSelection) {
+        _lasso = [p];
+        _selection = Rect.fromPoints(p, p);
+        _selected = {};
       }
-    });
+    } else {
+      _inkController.startErase();
+      _lastErase = p;
+      _inkController.erase(
+        p,
+        14 / scale,
+        segment: _activeTool == _Tool.segmentEraser,
+      );
+    }
+    setState(() {});
   }
 
   void _move(PointerMoveEvent event, double scale) {
     if (!mounted || _disposed || event.pointer != _pointer) return;
     final p = _point(event.localPosition, scale);
-    setState(() {
-      _dirty = true;
-      if (_activeTool == _Tool.eraser) {
-        _erase(p, 14 / scale);
-      } else if (_strokes.isNotEmpty) {
-        _strokes.last.points.add(p);
+    PerformanceMetrics.instance.count(
+      'Active points',
+      _inkController.active.length,
+    );
+    if (_activeTool == _Tool.pen) {
+      _inkController.move(p, pressure: _pressure(event));
+    } else if (_activeTool == _Tool.lasso) {
+      if (!_transformSelection) {
+        setState(() {
+          if (_lasso.isEmpty || (p - _lasso.last).distance > 2) _lasso.add(p);
+          _selection = InkStroke(_ink, 1, _lasso).bounds;
+        });
       }
-    });
-  }
-
-  void _up(PointerEvent event) {
-    // Flutter can dispatch PointerUp to a disposed listener after navigation.
-    // deactivate()/dispose() already flush any partial stroke to storage.
-    if (!mounted || _disposed || event.pointer != _pointer) return;
-    setState(() => _pointer = null);
-    unawaited(_save());
-  }
-
-  void _erase(Offset at, double radius) {
-    for (var i = _strokes.length - 1; i >= 0; i--) {
-      final points = _strokes[i].points;
-      var hit = points.any((p) => (p - at).distance <= radius);
-      for (var j = 1; j < points.length && !hit; j++) {
-        final a = points[j - 1];
-        final d = points[j] - a;
-        final length = d.dx * d.dx + d.dy * d.dy;
-        final t = length == 0 ? 0.0 :
-            (((at - a).dx * d.dx + (at - a).dy * d.dy) / length)
-                .clamp(0.0, 1.0).toDouble();
-        hit = (a + d * t - at).distance <= radius;
+    } else {
+      final from = _lastErase ?? p;
+      final steps = ((p - from).distance / (7 / scale)).ceil().clamp(1, 1000);
+      for (var i = 1; i <= steps; i++) {
+        _inkController.erase(
+          Offset.lerp(from, p, i / steps)!,
+          14 / scale,
+          segment: _activeTool == _Tool.segmentEraser,
+        );
       }
-      if (hit) { _strokes.removeAt(i); break; }
+      _lastErase = p;
     }
   }
 
-  Widget _button(String label, IconData icon, VoidCallback? action,
-      {bool selected = false}) => IconButton(
+  void _up(PointerEvent event) {
+    if (!mounted || _disposed || event.pointer != _pointer) return;
+    if (_activeTool == _Tool.lasso) {
+      if (_transformSelection && _dragStart != null) {
+        // Local position has the same scale as the original down event.
+        final delta = _point(event.localPosition, _inputScale) - _dragStart!;
+        _transformSelected(1, delta);
+      } else if (_selection != null) {
+        _selected = _inkController.index
+            .query(_selection!)
+            .where((s) => inkPolygonContains(_lasso, s.bounds.center))
+            .toSet();
+      }
+    } else if (_activeTool == _Tool.pen) {
+      _inkController.finish(allowScratch: event is! PointerCancelEvent);
+    } else {
+      _inkController.endErase();
+    }
+    setState(() {
+      _pointer = null;
+      _lasso = [];
+    });
+    _scheduleSave();
+  }
+
+  void _transformSelected(double factor, Offset delta) {
+    if (_selected.isEmpty || _selection == null) return;
+    final center = _selection!.center;
+    final replacements = [
+      for (final s in _selected)
+        InkStroke(
+          s.color,
+          s.width * factor,
+          s.points.map((p) => center + (p - center) * factor + delta),
+          pressures: s.pressures,
+          smooth: s.smooth,
+        ),
+    ];
+    _inkController.replace(_selected, replacements);
+    _selected = replacements.toSet();
+    _selection = Rect.fromCenter(
+      center: center + delta,
+      width: _selection!.width * factor,
+      height: _selection!.height * factor,
+    );
+    setState(() {});
+    _scheduleSave();
+  }
+
+  void _showPalette() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Wrap(
+            spacing: 16,
+            children: [
+              for (final color in _colors)
+                IconButton(
+                  tooltip: 'Select ink',
+                  icon: Icon(Icons.circle, color: color),
+                  onPressed: () {
+                    setState(() {
+                      _ink = color;
+                      _tool = _Tool.pen;
+                    });
+                    Navigator.pop(context);
+                  },
+                ),
+              IconButton(
+                tooltip: 'Eraser',
+                icon: const Icon(Icons.backspace_outlined),
+                onPressed: () {
+                  setState(() => _tool = _Tool.eraser);
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _button(
+    String label,
+    IconData icon,
+    VoidCallback? action, {
+    bool selected = false,
+  }) =>
+      IconButton(
         tooltip: label,
         onPressed: _loading || _loadFailed || _pointer != null ? null : action,
         isSelected: selected,
@@ -326,110 +476,265 @@ class _OqbScratchpadState extends State<OqbScratchpad>
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(children: [
-                _button('Pen', Icons.edit_outlined,
-                    () => setState(() => _tool = _Tool.pen), selected: _tool == _Tool.pen),
-                _button('Erase strokes', Icons.backspace_outlined,
-                    () => setState(() => _tool = _Tool.eraser), selected: _tool == _Tool.eraser),
-                _button('Undo', Icons.undo, _undo.isEmpty ? null : _undoStroke),
-                _button('Redo', Icons.redo, _redo.isEmpty ? null : _redoStroke),
-                for (var i = 0; i < _colors.length; i++)
-                  IconButton(
-                    tooltip: 'Ink colour ${i + 1}',
-                    onPressed: _pointer != null ? null : () => setState(() {
-                      _ink = _colors[i];
-                      _tool = _Tool.pen;
-                    }),
-                    icon: Icon(_ink == _colors[i] && _tool == _Tool.pen
-                        ? Icons.check_circle : Icons.circle, color: _colors[i]),
+              child: Row(
+                children: [
+                  _button(
+                    'Pen',
+                    Icons.edit_outlined,
+                    () => setState(() => _tool = _Tool.pen),
+                    selected: _tool == _Tool.pen,
                   ),
-                PopupMenuButton<double>(
-                  tooltip: 'Pen thickness',
-                  enabled: _pointer == null,
-                  onSelected: (value) => setState(() => _width = value),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 2.0, child: Text('Fine')),
-                    PopupMenuItem(value: 3.5, child: Text('Medium')),
-                    PopupMenuItem(value: 6.0, child: Text('Thick')),
+                  _button(
+                    'Erase strokes',
+                    Icons.backspace_outlined,
+                    () => setState(() => _tool = _Tool.eraser),
+                    selected: _tool == _Tool.eraser,
+                  ),
+                  _button(
+                    'Undo',
+                    Icons.undo,
+                    !_inkController.canUndo ? null : _undoStroke,
+                  ),
+                  _button(
+                    'Redo',
+                    Icons.redo,
+                    !_inkController.canRedo ? null : _redoStroke,
+                  ),
+                  _button(
+                    'Erase segments',
+                    Icons.auto_fix_normal,
+                    () => setState(() => _tool = _Tool.segmentEraser),
+                    selected: _tool == _Tool.segmentEraser,
+                  ),
+                  _button(
+                    'Select and move ink',
+                    Icons.select_all,
+                    () => setState(() => _tool = _Tool.lasso),
+                    selected: _tool == _Tool.lasso,
+                  ),
+                  if (_selected.isNotEmpty) ...[
+                    _button(
+                      'Shrink selection',
+                      Icons.zoom_out,
+                      () => _transformSelected(.9, Offset.zero),
+                    ),
+                    _button(
+                      'Grow selection',
+                      Icons.zoom_in,
+                      () => _transformSelected(1.1, Offset.zero),
+                    ),
                   ],
-                  icon: const Icon(Icons.line_weight),
-                ),
-                PopupMenuButton<_Paper>(
-                  tooltip: 'Paper style',
-                  enabled: !_loading && !_loadFailed && _pointer == null,
-                  onSelected: (value) {
-                    setState(() { _paper = value; _dirty = true; });
-                    unawaited(_save());
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: _Paper.plain, child: Text('Plain paper')),
-                    PopupMenuItem(value: _Paper.grid, child: Text('Grid paper')),
-                    PopupMenuItem(value: _Paper.ruled, child: Text('Ruled paper')),
-                  ],
-                  icon: const Icon(Icons.grid_on_outlined),
-                ),
-                FilterChip(
-                  label: const Text('Finger drawing'),
-                  selected: _fingerDrawing,
-                  onSelected: _loading || _loadFailed || _pointer != null ? null : (value) {
-                    setState(() { _fingerDrawing = value; _dirty = true; });
-                    unawaited(_save());
-                  },
-                ),
-                const SizedBox(width: 8),
-                _button('Clear working', Icons.delete_outline,
-                    _strokes.isEmpty ? null : _clear),
-              ]),
+                  PopupMenuButton<InkPressure>(
+                    tooltip: 'Pressure sensitivity',
+                    initialValue: _inkController.sensitivity,
+                    onSelected: (value) => setState(() {
+                      _inkController.sensitivity = value;
+                      _dirty = true;
+                      _scheduleSave();
+                    }),
+                    itemBuilder: (_) => [
+                      for (final value in InkPressure.values)
+                        PopupMenuItem(value: value, child: Text(value.name)),
+                    ],
+                    icon: const Icon(Icons.gesture),
+                  ),
+                  FilterChip(
+                    label: const Text('Hold to snap'),
+                    selected: _inkController.holdToSnap,
+                    onSelected: (v) => setState(() {
+                      _inkController.holdToSnap = v;
+                      _dirty = true;
+                      _scheduleSave();
+                    }),
+                  ),
+                  FilterChip(
+                    label: const Text('Scratch to erase'),
+                    selected: _inkController.scratchToErase,
+                    onSelected: (v) => setState(() {
+                      _inkController.scratchToErase = v;
+                      _dirty = true;
+                      _scheduleSave();
+                    }),
+                  ),
+                  for (var i = 0; i < _colors.length; i++)
+                    IconButton(
+                      tooltip: 'Ink colour ${i + 1}',
+                      onPressed: _pointer != null
+                          ? null
+                          : () => setState(() {
+                                _ink = _colors[i];
+                                _tool = _Tool.pen;
+                              }),
+                      icon: Icon(
+                        _ink == _colors[i] && _tool == _Tool.pen
+                            ? Icons.check_circle
+                            : Icons.circle,
+                        color: _colors[i],
+                      ),
+                    ),
+                  PopupMenuButton<double>(
+                    tooltip: 'Pen thickness',
+                    enabled: _pointer == null,
+                    onSelected: (value) => setState(() => _width = value),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 2.0, child: Text('Fine')),
+                      PopupMenuItem(value: 3.5, child: Text('Medium')),
+                      PopupMenuItem(value: 6.0, child: Text('Thick')),
+                    ],
+                    icon: const Icon(Icons.line_weight),
+                  ),
+                  PopupMenuButton<InkPaper>(
+                    tooltip: 'Paper style',
+                    enabled: !_loading && !_loadFailed && _pointer == null,
+                    onSelected: (value) {
+                      setState(() {
+                        _paper = value;
+                        _dirty = true;
+                      });
+                      _scheduleSave();
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: InkPaper.plain,
+                        child: Text('Plain paper'),
+                      ),
+                      PopupMenuItem(
+                        value: InkPaper.grid,
+                        child: Text('Grid paper'),
+                      ),
+                      PopupMenuItem(
+                        value: InkPaper.ruled,
+                        child: Text('Ruled paper'),
+                      ),
+                    ],
+                    icon: const Icon(Icons.grid_on_outlined),
+                  ),
+                  FilterChip(
+                    label: const Text('Finger drawing'),
+                    selected: _fingerDrawing,
+                    onSelected: _loading || _loadFailed || _pointer != null
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _fingerDrawing = value;
+                              _dirty = true;
+                            });
+                            _scheduleSave();
+                          },
+                  ),
+                  const SizedBox(width: 8),
+                  _button(
+                    'Clear working',
+                    Icons.delete_outline,
+                    _inkController.strokes.isEmpty ? null : _clear,
+                  ),
+                ],
+              ),
             ),
           ),
           if (_saveFailed)
             MaterialBanner(
-              content: const Text('Working is not saved to disk. Keep this session open and retry.'),
-              actions: [TextButton(onPressed: () => unawaited(_save()), child: const Text('Retry'))],
+              content: const Text(
+                'Working is not saved to disk. Keep this session open and retry.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => unawaited(_save()),
+                  child: const Text('Retry'),
+                ),
+              ],
             ),
           const Divider(height: 1),
           Expanded(
-            child: _loading ? const Center(child: CircularProgressIndicator())
-                : _loadFailed ? Center(child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Could not load working. Existing data was not changed.'),
-                      TextButton(onPressed: () {
-                        setState(() => _loading = true);
-                        unawaited(_load());
-                      }, child: const Text('Retry')),
-                    ],
-                  ))
-                : LayoutBuilder(builder: (context, constraints) {
-                    final scale = constraints.maxWidth / _pageWidth;
-                    return ScrollConfiguration(
-                      behavior: const MaterialScrollBehavior().copyWith(
-                        dragDevices: {
-                          if (!_fingerDrawing) PointerDeviceKind.touch,
-                          PointerDeviceKind.trackpad,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _loadFailed
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Could not load working. Existing data was not changed.',
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() => _loading = true);
+                                unawaited(_load());
+                              },
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final scale = constraints.maxWidth / _pageWidth;
+                          return ScrollConfiguration(
+                            behavior: const MaterialScrollBehavior().copyWith(
+                              dragDevices: {
+                                if (!_fingerDrawing) PointerDeviceKind.touch,
+                                PointerDeviceKind.trackpad,
+                              },
+                            ),
+                            child: SingleChildScrollView(
+                              controller: _scroll,
+                              child: SizedBox(
+                                width: constraints.maxWidth,
+                                height: _pageHeight * scale,
+                                child: Listener(
+                                  behavior: HitTestBehavior.opaque,
+                                  onPointerHover: (event) => setState(
+                                    () => _hover =
+                                        _point(event.localPosition, scale),
+                                  ),
+                                  onPointerDown: (event) => _down(event, scale),
+                                  onPointerMove: (event) => _move(event, scale),
+                                  onPointerUp: _up,
+                                  onPointerCancel: _up,
+                                  child: Stack(
+                                    key: const Key('scratchpad-canvas'),
+                                    fit: StackFit.expand,
+                                    children: [
+                                      RepaintBoundary(
+                                        child: CustomPaint(
+                                          painter: PaperPainter(_paper, scale),
+                                        ),
+                                      ),
+                                      RepaintBoundary(
+                                        child: CustomPaint(
+                                          painter: CommittedInkPainter(
+                                            _inkController,
+                                            scale,
+                                          ),
+                                        ),
+                                      ),
+                                      RepaintBoundary(
+                                        child: CustomPaint(
+                                          painter: ActiveInkPainter(
+                                            _inkController,
+                                            scale,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_hover != null || _selection != null)
+                                        IgnorePointer(
+                                          child: CustomPaint(
+                                            painter: _OverlayPainter(
+                                              _hover,
+                                              _selection,
+                                              scale,
+                                              _lasso,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
                         },
                       ),
-                      child: SingleChildScrollView(
-                        controller: _scroll,
-                        child: SizedBox(
-                          width: constraints.maxWidth,
-                          height: _pageHeight * scale,
-                          child: Listener(
-                            behavior: HitTestBehavior.opaque,
-                            onPointerDown: (event) => _down(event, scale),
-                            onPointerMove: (event) => _move(event, scale),
-                            onPointerUp: _up,
-                            onPointerCancel: _up,
-                            child: RepaintBoundary(child: CustomPaint(
-                              key: const Key('scratchpad-canvas'),
-                              painter: _InkPainter(_strokes, _paper, scale),
-                              child: const SizedBox.expand(),
-                            )),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
           ),
         ],
       ),
@@ -437,52 +742,36 @@ class _OqbScratchpadState extends State<OqbScratchpad>
   }
 }
 
-class _InkPainter extends CustomPainter {
-  const _InkPainter(this.strokes, this.paper, this.scale);
-  final List<_Stroke> strokes;
-  final _Paper paper;
+class _OverlayPainter extends CustomPainter {
+  _OverlayPainter(this.hover, this.selection, this.scale, List<Offset> lasso)
+      : lasso = List.of(lasso);
+  final List<Offset> lasso;
+  final Offset? hover;
+  final Rect? selection;
   final double scale;
-
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawColor(Colors.white, BlendMode.src);
-    canvas.save();
     canvas.scale(scale);
-    final guide = Paint()..color = const Color(0xFFDCE5E7)..strokeWidth = 1;
-    if (paper == _Paper.grid) {
-      for (var x = 32.0; x < 800; x += 32) {
-        canvas.drawLine(Offset(x, 0), Offset(x, 1800), guide);
+    final paint = Paint()
+      ..color = Colors.blue
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5 / scale;
+    if (hover != null) canvas.drawCircle(hover!, 5 / scale, paint);
+    if (lasso.isNotEmpty) {
+      final path = Path()..moveTo(lasso.first.dx, lasso.first.dy);
+      for (final p in lasso.skip(1)) {
+        path.lineTo(p.dx, p.dy);
       }
+      canvas.drawPath(path..close(), paint);
+    } else if (selection != null) {
+      canvas.drawRect(selection!, paint);
     }
-    if (paper != _Paper.plain) {
-      for (var y = 32.0; y < 1800; y += 32) {
-        canvas.drawLine(Offset(0, y), Offset(800, y), guide);
-      }
-    }
-    for (final stroke in strokes) {
-      if (stroke.points.isEmpty) continue;
-      final paint = Paint()
-        ..color = stroke.color
-        ..strokeWidth = stroke.width
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke
-        ..isAntiAlias = true;
-      if (stroke.points.length == 1) {
-        canvas.drawCircle(stroke.points.first, stroke.width / 2,
-            Paint()..color = stroke.color);
-      } else {
-        final first = stroke.points.first;
-        final path = Path()..moveTo(first.dx, first.dy);
-        for (final point in stroke.points.skip(1)) {
-          path.lineTo(point.dx, point.dy);
-        }
-        canvas.drawPath(path, paint);
-      }
-    }
-    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _InkPainter oldDelegate) => true;
+  bool shouldRepaint(_OverlayPainter old) =>
+      old.hover != hover ||
+      old.selection != selection ||
+      old.scale != scale ||
+      old.lasso.length != lasso.length;
 }

@@ -34,7 +34,6 @@ class FileScratchpadStorage implements ScratchpadStorage {
     final text = await file.exists() ? await file.readAsString() : null;
     // An edit may have been queued while the disk read was pending.
     if (_latest.containsKey(key)) return _latest[key];
-    if (text != null) _latest[key] = text;
     return text;
   }
 
@@ -43,12 +42,16 @@ class FileScratchpadStorage implements ScratchpadStorage {
     // Immediate cache prevents a rapid question switch from reloading stale ink.
     _latest[key] = value;
     final previous = _queues[key] ?? Future<void>.value();
-    final next = previous.catchError((Object _) {}).then((_) async {
+    late final Future<void> next;
+    next = previous.catchError((Object _) {}).then((_) async {
       final destination = await _file(key);
       final temporary = File('${destination.path}.tmp');
       await temporary.writeAsString(value, flush: true);
       // Atomic replacement preserves the previous completed document on failure.
       await temporary.rename(destination.path);
+      if (_latest[key] == value) _latest.remove(key);
+    }).whenComplete(() {
+      if (identical(_queues[key], next)) _queues.remove(key);
     });
     _queues[key] = next;
     return next;

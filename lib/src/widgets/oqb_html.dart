@@ -1,6 +1,12 @@
+import 'dart:async';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:html/parser.dart' as html_parser;
+
+import '../models/oqb_trial.dart';
+import '../services/performance_metrics.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
 import '../services/oqb_api_client.dart';
@@ -11,27 +17,145 @@ final Uri oqbBaseUri = Uri.parse('https://oqb.edcity.hk/');
 /// (e.g. they need the WebView's cookies). Signed URLs and bytes are kept
 /// only for the current app session and never written to disk.
 class OqbAssetLoader {
-  OqbAssetLoader(this.transport, {this.maxEntries = 120});
-
+  OqbAssetLoader(
+    this.transport, {
+    this.maxEntries = 120,
+    this.maxBytes = 32 * 1024 * 1024,
+    this.maxConcurrent = 3,
+  })  : assert(maxEntries > 0),
+        assert(maxBytes >= 0),
+        assert(maxConcurrent > 0);
   final OqbApiTransport transport;
   final int maxEntries;
-  final Map<String, Future<Uint8List?>> _cache = <String, Future<Uint8List?>>{};
+  final int maxBytes;
+  final int maxConcurrent;
+  int _running = 0;
+  final _waiters = <Completer<void>>[];
+  Future<void> _acquire() async {
+    if (_running < maxConcurrent) {
+      _running++;
+      return;
+    }
+    final gate = Completer<void>();
+    _waiters.add(gate);
+    await gate.future;
+  }
 
+  void _release() {
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete();
+    } else {
+      _running--;
+    }
+  }
+
+  int _bytes = 0;
+  int _generation = 0;
+  final _cache = <String, Uint8List>{};
+  final _pending = <String, Future<Uint8List?>>{};
+  int get cachedBytes => _bytes;
+  int get cachedEntries => _cache.length;
   Future<Uint8List?> load(String url) {
     final cached = _cache.remove(url);
     if (cached != null) {
-      _cache[url] = cached; // refresh LRU position
-      return cached;
+      _cache[url] = cached;
+      return Future.value(cached);
     }
-    final future = transport.fetchAsset(url);
-    _cache[url] = future;
-    while (_cache.length > maxEntries) {
-      _cache.remove(_cache.keys.first);
-    }
-    return future;
+    return _pending[url] ??= _fetch(url);
   }
 
-  void clear() => _cache.clear();
+  Future<Uint8List?> _fetch(String url) async {
+    final generation = _generation;
+    await _acquire();
+    try {
+      if (generation != _generation) return null;
+      final bytes = await PerformanceMetrics.instance
+          .measure('Image fetch', () => transport.fetchAsset(url));
+      if (generation == _generation &&
+          bytes != null &&
+          bytes.isNotEmpty &&
+          bytes.length <= maxBytes) {
+        _cache[url] = bytes;
+        _bytes += bytes.length;
+        while (_bytes > maxBytes || _cache.length > maxEntries) {
+          _bytes -= _cache.remove(_cache.keys.first)!.length;
+        }
+      }
+      return bytes;
+    } finally {
+      _release();
+      if (generation == _generation) _pending.remove(url);
+    }
+  }
+
+  void clear() {
+    _generation++;
+    _cache.clear();
+    _pending.clear();
+    _bytes = 0;
+  }
+}
+
+/// Bounded parsed resource cache keyed by exact HTML, avoiding hash collisions.
+class QuestionResourceCache {
+  static final instance = QuestionResourceCache();
+  final _urls = <String, List<String>>{};
+  List<String> imageUrls(String html) {
+    final cached = _urls.remove(html);
+    if (cached != null) {
+      _urls[html] = cached;
+      return cached;
+    }
+    final urls = html_parser
+        .parseFragment(html)
+        .querySelectorAll('img')
+        .map((e) => resolveOqbUrl(e.attributes['src'] ?? ''))
+        .where((s) => s.isNotEmpty && !s.startsWith('data:'))
+        .toSet()
+        .toList();
+    _urls[html] = urls;
+    while (_urls.length > 24) {
+      _urls.remove(_urls.keys.first);
+    }
+    return urls;
+  }
+}
+
+Future<void> preloadQuestion(
+  BuildContext context,
+  OqbTrialQuestion question,
+  OqbAssetLoader? loader,
+) async {
+  final content = question.question;
+  if (content == null || loader == null) return;
+  final urls = <String>{
+    ...QuestionResourceCache.instance.imageUrls(content.displayContent),
+    if (content.urlLooksLikeImage) resolveOqbUrl(content.url),
+    for (final choice in content.choices) ...[
+      ...QuestionResourceCache.instance.imageUrls(choice.displayHtml),
+      if (choice.imageUrl.isNotEmpty) resolveOqbUrl(choice.imageUrl),
+    ],
+  }.take(8);
+  // Two concurrent fetch/decode operations at most.
+  final queue = urls.toList();
+  Future<void> worker() async {
+    while (queue.isNotEmpty && context.mounted) {
+      final url = queue.removeAt(0);
+      try {
+        final bytes = await loader.load(url);
+        if (bytes != null && context.mounted) {
+          await precacheImage(
+            ResizeImage.resizeIfNeeded(1600, null, MemoryImage(bytes)),
+            context,
+          );
+        }
+      } catch (_) {
+        /* Speculative failures are retried when displayed. */
+      }
+    }
+  }
+
+  await Future.wait([worker(), worker()]);
 }
 
 class OqbAssetScope extends InheritedWidget {
@@ -43,7 +167,8 @@ class OqbAssetScope extends InheritedWidget {
       context.dependOnInheritedWidgetOfExactType<OqbAssetScope>()?.loader;
 
   @override
-  bool updateShouldNotify(OqbAssetScope oldWidget) => loader != oldWidget.loader;
+  bool updateShouldNotify(OqbAssetScope oldWidget) =>
+      loader != oldWidget.loader;
 }
 
 String resolveOqbUrl(String raw) {
@@ -58,16 +183,44 @@ String resolveOqbUrl(String raw) {
 
 /// Renders OQB question/choice HTML, preserving tables, formatting and
 /// images. Images are zoomable and fall back to loading through the WebView.
-class OqbHtml extends StatelessWidget {
+class OqbHtml extends StatefulWidget {
   const OqbHtml(this.html, {super.key, this.textStyle});
 
   final String html;
   final TextStyle? textStyle;
 
   @override
+  State<OqbHtml> createState() => _OqbHtmlState();
+}
+
+class _OqbHtmlState extends State<OqbHtml> {
+  Widget? _rendered;
+  @override
+  void didUpdateWidget(OqbHtml old) {
+    super.didUpdateWidget(old);
+    if (old.html != widget.html || old.textStyle != widget.textStyle) {
+      _rendered = null;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _rendered = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final html = widget.html;
+    final textStyle = widget.textStyle;
     if (html.trim().isEmpty) return const SizedBox.shrink();
-    return HtmlWidget(
+    if (_rendered == null && PerformanceMetrics.enabled) {
+      final clock = Stopwatch()..start();
+      WidgetsBinding.instance.addPostFrameCallback((_) => PerformanceMetrics
+          .instance
+          .record('HTML first frame', clock.elapsedMicroseconds / 1000));
+    }
+    return _rendered ??= HtmlWidget(
       html,
       baseUrl: oqbBaseUri,
       textStyle: textStyle,
@@ -93,7 +246,9 @@ class OqbHtml extends StatelessWidget {
           preferredWidth: width,
         );
         // Small images (inline formulas, symbols) stay in the text flow.
-        if (width != null && width <= 160) return InlineCustomWidget(child: image);
+        if (width != null && width <= 160) {
+          return InlineCustomWidget(child: image);
+        }
         return image;
       },
       // Links inside questions must not navigate the authenticated browser.
@@ -135,7 +290,12 @@ class _OqbImageState extends State<OqbImage> {
   @override
   void didUpdateWidget(OqbImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) _fallback = null;
+    if (oldWidget.url != widget.url) {
+      final loader = OqbAssetScope.of(context);
+      _fallback = loader == null || widget.url.startsWith('data:')
+          ? null
+          : loader.load(widget.url);
+    }
   }
 
   void _startFallback() {
@@ -145,6 +305,15 @@ class _OqbImageState extends State<OqbImage> {
       if (!mounted || _fallback != null) return;
       setState(() => _fallback = loader.load(widget.url));
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final loader = OqbAssetScope.of(context);
+    if (loader != null && !widget.url.startsWith('data:')) {
+      _fallback ??= loader.load(widget.url);
+    }
   }
 
   Widget _frame(Widget image, ImageProvider provider) {
@@ -158,7 +327,8 @@ class _OqbImageState extends State<OqbImage> {
     return MouseRegion(
       cursor: SystemMouseCursors.zoomIn,
       child: GestureDetector(
-        onTap: () => showOqbImageViewer(context, provider, widget.semanticLabel),
+        onTap: () =>
+            showOqbImageViewer(context, provider, widget.semanticLabel),
         child: child,
       ),
     );
@@ -192,7 +362,10 @@ class _OqbImageState extends State<OqbImage> {
   Widget build(BuildContext context) {
     final data = _dataProvider;
     if (data != null) {
-      return _frame(Image(image: data, semanticLabel: widget.semanticLabel), data);
+      return _frame(
+        Image(image: data, semanticLabel: widget.semanticLabel),
+        data,
+      );
     }
 
     final fallback = _fallback;
@@ -208,14 +381,18 @@ class _OqbImageState extends State<OqbImage> {
           }
           final bytes = snapshot.data;
           if (bytes == null || bytes.isEmpty) return _unavailable();
-          final provider = MemoryImage(bytes);
+          final provider = ResizeImage.resizeIfNeeded(
+            1600,
+            null,
+            MemoryImage(bytes),
+          );
           return _frame(
             Image(
               image: provider,
               semanticLabel: widget.semanticLabel,
               errorBuilder: (context, _, __) => _unavailable(),
             ),
-            provider,
+            MemoryImage(bytes),
           );
         },
       );
@@ -258,7 +435,9 @@ Future<void> showOqbImageViewer(
             child: InteractiveViewer(
               minScale: 0.5,
               maxScale: 6,
-              child: Center(child: Image(image: provider, semanticLabel: label)),
+              child: Center(
+                child: Image(image: provider, semanticLabel: label),
+              ),
             ),
           ),
           Positioned(
