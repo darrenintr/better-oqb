@@ -57,6 +57,7 @@ class MistakeHistory extends ChangeNotifier {
   final LocalPreferences? storage;
   final _attempts = <String, StudyAttempt>{};
   Future<void>? _loading;
+  Timer? _saveTimer;
   Object? error;
   List<StudyAttempt> get attempts => _attempts.values.toList()
     ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -102,10 +103,16 @@ class MistakeHistory extends ChangeNotifier {
       _attempts.remove(_attempts.keys.first);
     }
     notifyListeners();
-    await persist();
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 600), () {
+      _saveTimer = null;
+      unawaited(persist());
+    });
   }
 
   Future<void> persist() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
     try {
       await storage?.write('mistakes', {
         'version': 1,
@@ -116,6 +123,12 @@ class MistakeHistory extends ChangeNotifier {
       error = e;
     }
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
   }
 
   List<TopicAccuracy> get topics {

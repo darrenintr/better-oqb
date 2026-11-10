@@ -10,7 +10,7 @@ public class OqbPencilBridgePlugin: NSObject, FlutterPlugin, UIPencilInteraction
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = OqbPencilBridgePlugin()
     instance.channel = FlutterMethodChannel(name: "better_oqb/pencil", binaryMessenger: registrar.messenger())
-    instance.controller = registrar.viewController()
+    instance.controller = registrar.viewController
     registrar.addMethodCallDelegate(instance, channel: instance.channel)
   }
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
